@@ -114,9 +114,10 @@ pub fn get_position_string(location: Position, root: Node, source: &str) -> Opti
                 let x = child.start_position().column;
                 let y = child.end_position().column;
 
-                let message = &newsource[h][x..y];
-                //crate::notify_send(message, crate::Type::Info);
-                return Some(message.to_string());
+                if y > x {
+                    let message = &newsource[h][x..y];
+                    return Some(message.to_string());
+                }
             }
         }
     }
