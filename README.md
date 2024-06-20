@@ -1,3 +1,9 @@
+
+Upstream repo: https://github.com/Decodetalkers/neocmakelsp
+
+This branch is aimed to make neocmakelsp works better with my emacs workflow,
+that is why release are prefixed with character "e".
+
 # CMake LSP implementation based on Tower and Tree-sitter
 
 [![Crates.io](https://img.shields.io/crates/v/neocmakelsp.svg)](https://crates.io/crates/neocmakelsp)
