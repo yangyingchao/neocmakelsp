@@ -1,4 +1,4 @@
-use crate::utils::treehelper::PositionType;
+use crate::{consts::TREESITTER_CMAKE_LANGUAGE, utils::treehelper::PositionType};
 
 use super::getsubcomplete;
 use lsp_types::CompletionItem;
@@ -34,12 +34,12 @@ pub fn scanner_include_complete(
     match fs::read_to_string(path) {
         Ok(content) => {
             let mut parse = tree_sitter::Parser::new();
-            parse.set_language(&tree_sitter_cmake::language()).unwrap();
+            parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
             let thetree = parse.parse(content.clone(), None);
             let tree = thetree.unwrap();
             let result_data = getsubcomplete(
                 tree.root_node(),
-                content.as_str(),
+                &content.lines().collect(),
                 path,
                 postype,
                 None,
@@ -76,12 +76,12 @@ pub fn scanner_package_complete(
     match fs::read_to_string(path) {
         Ok(content) => {
             let mut parse = tree_sitter::Parser::new();
-            parse.set_language(&tree_sitter_cmake::language()).unwrap();
+            parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
             let thetree = parse.parse(content.clone(), None);
             let tree = thetree.unwrap();
             let result_data = getsubcomplete(
                 tree.root_node(),
-                content.as_str(),
+                &content.lines().collect(),
                 path,
                 postype,
                 None,

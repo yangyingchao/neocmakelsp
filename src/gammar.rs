@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 use crate::config;
+use crate::consts::TREESITTER_CMAKE_LANGUAGE;
 /// checkerror the gammer error
 /// if there is error , it will return the position of the error
 pub struct ErrorInfo {
@@ -13,8 +14,16 @@ pub struct ErrorInfo {
         Option<DiagnosticSeverity>,
     )>,
 }
+
 pub fn checkerror(local_path: &Path, source: &str, input: tree_sitter::Node) -> Option<ErrorInfo> {
-    let newsource: Vec<&str> = source.lines().collect();
+    checkerror_inner(local_path, &source.lines().collect(), input)
+}
+
+fn checkerror_inner(
+    local_path: &Path,
+    newsource: &Vec<&str>,
+    input: tree_sitter::Node,
+) -> Option<ErrorInfo> {
     if input.is_error() {
         return Some(ErrorInfo {
             inner: vec![(
@@ -28,7 +37,7 @@ pub fn checkerror(local_path: &Path, source: &str, input: tree_sitter::Node) -> 
     let mut course = input.walk();
     let mut output = vec![];
     for node in input.children(&mut course) {
-        if let Some(mut tran) = checkerror(local_path, source, node) {
+        if let Some(mut tran) = checkerror_inner(local_path, newsource, node) {
             output.append(&mut tran.inner);
         }
         if node.kind() != "normal_command" {
@@ -167,7 +176,7 @@ fn scanner_include_error(path: &PathBuf) -> bool {
     match fs::read_to_string(path) {
         Ok(content) => {
             let mut parse = tree_sitter::Parser::new();
-            parse.set_language(&tree_sitter_cmake::language()).unwrap();
+            parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
             let thetree = parse.parse(content, None);
             let tree = thetree.unwrap();
             tree.root_node().has_error()
@@ -180,8 +189,12 @@ fn scanner_include_error(path: &PathBuf) -> bool {
 fn gammer_passed_check() {
     let source = include_str!("../assert/gammer/include_check.cmake");
     let mut parse = tree_sitter::Parser::new();
-    parse.set_language(&tree_sitter_cmake::language()).unwrap();
+    parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
     let thetree = parse.parse(&source, None).unwrap();
 
-    checkerror(std::path::Path::new("."), source, thetree.root_node());
+    checkerror_inner(
+        std::path::Path::new("."),
+        &source.lines().collect(),
+        thetree.root_node(),
+    );
 }

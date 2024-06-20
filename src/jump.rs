@@ -1,5 +1,8 @@
 /// provide go to definition
-use crate::utils::treehelper::{get_position_string, point_to_position};
+use crate::{
+    consts::TREESITTER_CMAKE_LANGUAGE,
+    utils::treehelper::{get_position_string, point_to_position},
+};
 use lsp_types::{MessageType, Position, Range, Url};
 use tower_lsp::lsp_types;
 use tree_sitter::Node;
@@ -20,7 +23,7 @@ pub async fn godef(
     is_jump: bool,
 ) -> Option<Vec<Location>> {
     let mut parse = tree_sitter::Parser::new();
-    parse.set_language(&tree_sitter_cmake::language()).unwrap();
+    parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
     let thetree = parse.parse(source, None);
     let tree = thetree.unwrap();
     let positionstring = get_position_string(location, tree.root_node(), source);
@@ -32,7 +35,8 @@ pub async fn godef(
                 match jumptype {
                     // TODO: maybe can hadle Include?
                     PositionType::Variable => {
-                        godefsub(tree.root_node(), source, &tofind, originuri, is_jump)
+                        let newsource: Vec<&str> = source.lines().collect();
+                        godefsub(tree.root_node(), &newsource, &tofind, originuri, is_jump)
                     }
                     PositionType::FindPackage
                     | PositionType::TargetLink
@@ -60,13 +64,12 @@ pub async fn godef(
 /// sub get the def
 fn godefsub(
     root: Node,
-    source: &str,
+    newsource: &Vec<&str>,
     tofind: &str,
     originuri: String,
     is_jump: bool,
 ) -> Option<Vec<Location>> {
     let mut definitions: Vec<Location> = vec![];
-    let newsource: Vec<&str> = source.lines().collect();
     let mut course = root.walk();
     for child in root.children(&mut course) {
         // if is inside same line
@@ -79,7 +82,9 @@ fn godefsub(
                 continue;
             }
             //let range = godefsub(child, source, tofind);
-            if let Some(mut context) = godefsub(child, source, tofind, originuri.clone(), is_jump) {
+            if let Some(mut context) =
+                godefsub(child, newsource, tofind, originuri.clone(), is_jump)
+            {
                 definitions.append(&mut context);
             }
         } else if child.start_position().row == child.end_position().row {

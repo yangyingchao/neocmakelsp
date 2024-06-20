@@ -1,3 +1,4 @@
+use crate::consts::TREESITTER_CMAKE_LANGUAGE;
 /// Get the tree of ast
 use crate::utils::treehelper::point_to_position;
 use lsp_types::{DocumentSymbol, DocumentSymbolResponse, MessageType, SymbolKind};
@@ -19,14 +20,18 @@ pub async fn getast(client: &Client, context: &str) -> Option<DocumentSymbolResp
             .await;
     }
     let mut parse = tree_sitter::Parser::new();
-    parse.set_language(&tree_sitter_cmake::language()).unwrap();
+    parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
     let thetree = parse.parse(context, None);
     let tree = thetree.unwrap();
-    getsubast(tree.root_node(), context, line > 10000).map(DocumentSymbolResponse::Nested)
+    getsubast(tree.root_node(), &context.lines().collect(), line > 10000)
+        .map(DocumentSymbolResponse::Nested)
 }
 #[allow(deprecated)]
-fn getsubast(input: tree_sitter::Node, source: &str, simple: bool) -> Option<Vec<DocumentSymbol>> {
-    let newsource: Vec<&str> = source.lines().collect();
+fn getsubast(
+    input: tree_sitter::Node,
+    source: &Vec<&str>,
+    simple: bool,
+) -> Option<Vec<DocumentSymbol>> {
     let mut course = input.walk();
     let mut asts: Vec<DocumentSymbol> = vec![];
     for child in input.children(&mut course) {
@@ -44,7 +49,7 @@ fn getsubast(input: tree_sitter::Node, source: &str, simple: bool) -> Option<Vec
                 let x = function_name.start_position().column;
                 let y = function_name.end_position().column;
                 let h = function_name.start_position().row;
-                let Some(name) = &newsource[h][x..y].split(' ').next() else {
+                let Some(name) = &source[h][x..y].split(' ').next() else {
                     continue;
                 };
                 asts.push(DocumentSymbol {
@@ -93,7 +98,7 @@ fn getsubast(input: tree_sitter::Node, source: &str, simple: bool) -> Option<Vec
                 let x = marco_name.start_position().column;
                 let y = marco_name.end_position().column;
                 let h = marco_name.start_position().row;
-                let Some(name) = &newsource[h][x..y].split(' ').next() else {
+                let Some(name) = &source[h][x..y].split(' ').next() else {
                     continue;
                 };
                 asts.push(DocumentSymbol {
@@ -178,7 +183,7 @@ fn getsubast(input: tree_sitter::Node, source: &str, simple: bool) -> Option<Vec
                 };
                 let x = ids.start_position().column;
                 let y = ids.end_position().column;
-                let command_name = &newsource[h][x..y];
+                let command_name = &source[h][x..y];
                 if COMMAND_KEYWORDS.contains(&command_name.to_lowercase().as_str()) {
                     let Some(argumentlists) = child.child(2) else {
                         continue;
@@ -194,7 +199,7 @@ fn getsubast(input: tree_sitter::Node, source: &str, simple: bool) -> Option<Vec
                         }
                         let x = ids.start_position().column;
                         let y = ids.end_position().column;
-                        let varname = &newsource[h][x..y];
+                        let varname = &source[h][x..y];
                         asts.push(DocumentSymbol {
                             name: format!("{command_name}: {varname}"),
                             detail: None,

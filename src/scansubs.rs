@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::consts::TREESITTER_CMAKE_LANGUAGE;
+
 /// NOTE: key is be included path, value is the top CMakeLists
 /// This is used to find who is on the top of the CMakeLists
 pub type TreeKey = HashMap<PathBuf, PathBuf>;
@@ -45,7 +47,7 @@ pub fn scan_dir_inner<P: AsRef<Path>>(path: P) -> Vec<PathBuf> {
     };
 
     let mut parse = tree_sitter::Parser::new();
-    parse.set_language(&tree_sitter_cmake::language()).unwrap();
+    parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
     let tree = parse.parse(&source, None).unwrap();
     let tree = tree.root_node();
     let newsource: Vec<&str> = source.lines().collect();
@@ -128,9 +130,9 @@ pub fn get_treedir(path: &Path) -> Option<TreeDir> {
         subdirs: None,
     };
     let mut parse = tree_sitter::Parser::new();
-    parse.set_language(&tree_sitter_cmake::language()).unwrap();
+    parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
     let tree = parse.parse(&content, None).unwrap();
-    let subdirs = get_subdir_from_tree(&content, tree.root_node(), path);
+    let subdirs = get_subdir_from_tree(&content.lines().collect(), tree.root_node(), path);
     if !subdirs.is_empty() {
         let mut sub_dirs: Vec<TreeDir> = vec![];
         for dir in subdirs {
@@ -145,8 +147,11 @@ pub fn get_treedir(path: &Path) -> Option<TreeDir> {
     Some(top)
 }
 
-fn get_subdir_from_tree(source: &str, tree: tree_sitter::Node, parent: &Path) -> Vec<PathBuf> {
-    let newsource: Vec<&str> = source.lines().collect();
+fn get_subdir_from_tree(
+    source: &Vec<&str>,
+    tree: tree_sitter::Node,
+    parent: &Path,
+) -> Vec<PathBuf> {
     if tree.is_error() {
         vec![]
     } else {
@@ -163,14 +168,14 @@ fn get_subdir_from_tree(source: &str, tree: tree_sitter::Node, parent: &Path) ->
                 //let ids = ids.child(2).unwrap();
                 let x = ids.start_position().column;
                 let y = ids.end_position().column;
-                let command_name = &newsource[h][x..y];
+                let command_name = &source[h][x..y];
                 if command_name.to_lowercase() == "add_subdirectory" && node.child_count() >= 4 {
                     let ids = node.child(2).unwrap();
                     if ids.start_position().row == ids.end_position().row {
                         let h = ids.start_position().row;
                         let x = ids.start_position().column;
                         let y = ids.end_position().column;
-                        let name = &newsource[h][x..y];
+                        let name = &source[h][x..y];
                         let name = remove_quotation(name);
                         let subpath = parent.parent().unwrap().join(name).join("CMakeLists.txt");
                         if subpath.exists() {

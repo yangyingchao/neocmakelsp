@@ -21,6 +21,7 @@ mod packagemac;
 #[cfg(target_os = "macos")]
 use packagemac as cmakepackage;
 
+use crate::consts::TREESITTER_CMAKE_LANGUAGE;
 use once_cell::sync::Lazy;
 // match file xx.cmake and CMakeLists.txt
 static CMAKEREGEX: Lazy<regex::Regex> =
@@ -35,7 +36,7 @@ static CMAKECONFIGVERSION: Lazy<regex::Regex> =
 fn get_version(source: &str) -> Option<String> {
     let newsource: Vec<&str> = source.lines().collect();
     let mut parse = tree_sitter::Parser::new();
-    parse.set_language(&tree_sitter_cmake::language()).unwrap();
+    parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
     let thetree = parse.parse(source, None);
     let tree = thetree.unwrap();
     let input = tree.root_node();
@@ -135,6 +136,7 @@ pub mod packagepkgconfig {
         Lazy::new(|| get_pkg_messages().into_values().collect());
 }
 pub use cmakepackage::*;
+
 #[test]
 fn regextest() {
     assert!(CMAKEREGEX.is_match("CMakeLists.txt"));
