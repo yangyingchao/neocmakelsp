@@ -85,7 +85,7 @@ async fn main() {
                 .paint("CMake LSP implementation based on Tower and Tree-sitter")
                 .to_string(),
         )
-        .version(VERSION)
+        .version( format!("e-{}", VERSION))
         .subcommand_required(true)
         .arg_required_else_help(true)
         .author("Cris")
