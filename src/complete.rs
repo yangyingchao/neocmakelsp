@@ -117,7 +117,11 @@ pub async fn getcomplete(
     let lines: Vec<&str> = source.lines().collect();
     let line = lines.get(location.line as usize)?.to_string();
     let subline = line.substring(0, location.character as usize).to_string();
-    let text = subline.split_whitespace().next_back().unwrap_or("");
+    let mut text = subline.split_whitespace().next_back().unwrap_or("");
+
+    if let Some(index) = text.rfind(|c| c == '(' || c == '[' || c == '{' || c == ',') {
+        text = &text[(index + 1)..];
+    }
 
     let postype = get_pos_type(location, tree.root_node(), source, PositionType::NotFind);
     match postype {
@@ -165,7 +169,7 @@ pub async fn getcomplete(
         Some(CompletionResponse::Array(
             complete
                 .into_iter()
-                .filter(|item| item.label.starts_with(text))
+                .filter(|item| item.label.starts_with(text) && item.label != text)
                 .collect(),
         ))
     } else {
