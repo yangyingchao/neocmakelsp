@@ -40,6 +40,7 @@ struct BackendInitInfo {
 struct Backend {
     /// client
     client: Client,
+
     /// Storage the message of buffers
     init_info: Arc<Mutex<BackendInitInfo>>,
     root_path: Arc<Mutex<Option<PathBuf>>>,
