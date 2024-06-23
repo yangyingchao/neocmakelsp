@@ -93,16 +93,18 @@ pub static BUILDIN_COMMAND: Lazy<Result<Vec<CompletionItem>>> = Lazy::new(|| {
         .map(|(akey, message)| {
             let mut kind = CompletionItemKind::FUNCTION;
             let mut insert_text_format = InsertTextFormat::PLAIN_TEXT;
-            let mut label = akey.to_string();
+            let mut insert_text = akey.to_string();
+            let mut detail = "Function".to_string();
             let s = format!(r"\n\s+(?P<signature>{}\([^)]*\))", akey);
             let r_match_signature = regex::Regex::new(s.as_str()).unwrap();
 
             // snippets only work for lower case for now...
-            if client_support_snippet && label.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
-                label = match r_match_signature.captures(message) {
+            if client_support_snippet && insert_text.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+                insert_text = match r_match_signature.captures(message) {
                     Some(m) => {
                         insert_text_format = InsertTextFormat::SNIPPET;
                         kind = CompletionItemKind::SNIPPET;
+                        detail += " (Snippet)";
                         convert_to_lsp_snippet(akey, m.name("signature").unwrap().as_str())
                     }
                     _ => akey.to_string(),
@@ -110,11 +112,11 @@ pub static BUILDIN_COMMAND: Lazy<Result<Vec<CompletionItem>>> = Lazy::new(|| {
             };
 
             CompletionItem {
-                label: label.clone(),
+                label: akey.to_string(),
                 kind: Some(kind),
-                detail: Some("Function".to_string()),
+                detail: Some(detail),
                 documentation: Some(Documentation::String(message.to_string())),
-                insert_text: Some(label),
+                insert_text: Some(insert_text),
                 insert_text_format: Some(insert_text_format),
                 ..Default::default()
             }
