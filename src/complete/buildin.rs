@@ -6,8 +6,14 @@ use std::{collections::HashMap, iter::zip};
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, Documentation, InsertTextFormat};
 
 use crate::consts::TREESITTER_CMAKE_LANGUAGE;
-use crate::languageserver::get_client_capabilities;
+use crate::languageserver::client_support_snippet;
 use crate::utils::get_node_content;
+
+/// following constants are declared in tree-sitter-cmake:
+///   https://github.com/uyha/tree-sitter-cmake/blob/master/src/parser.c#L66
+const SYM_ARGUMENT_LIST: u16 = 57;
+const SYM_NORMAL_COMMAND: u16 = 78;
+const SYM_ARGUMENT: u16 = 48;
 
 /// convert input text to a snippet, if possible.
 fn convert_to_lsp_snippet(key: &str, input: &str) -> String {
@@ -15,17 +21,16 @@ fn convert_to_lsp_snippet(key: &str, input: &str) -> String {
     parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
     let tree = parse.parse(input, None).unwrap();
     let mut node = tree.root_node().child(0).unwrap();
-    if node.kind_id() == 78 {
-        // TODO: remove hard-coded 78, which means normal_command
+    if node.kind_id() == SYM_NORMAL_COMMAND {
         let mut v: Vec<String> = vec![];
         let mut i = 0;
         node = node.child(2).unwrap();
-        if node.kind_id() == 57 {
+        if node.kind_id() == SYM_ARGUMENT_LIST {
             // argument_list
             let source: Vec<&str> = input.split('\n').collect();
             node = node.child(0).unwrap();
             loop {
-                if node.kind_id() == 48 {
+                if node.kind_id() == SYM_ARGUMENT {
                     i += 1;
                     v.push(format!("${{{}:{}}}", i, get_node_content(&source, &node)));
                 }
@@ -77,16 +82,7 @@ pub static BUILDIN_COMMAND: Lazy<Result<Vec<CompletionItem>>> = Lazy::new(|| {
         );
     }
 
-    let client_support_snippet = match get_client_capabilities() {
-        Some(c) => c
-            .completion
-            .unwrap()
-            .completion_item
-            .unwrap()
-            .snippet_support
-            .unwrap_or(false),
-        _ => false,
-    };
+    let client_support_snippet = client_support_snippet();
 
     Ok(completes
         .iter()
@@ -99,7 +95,11 @@ pub static BUILDIN_COMMAND: Lazy<Result<Vec<CompletionItem>>> = Lazy::new(|| {
             let r_match_signature = regex::Regex::new(s.as_str()).unwrap();
 
             // snippets only work for lower case for now...
-            if client_support_snippet && insert_text.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+            if client_support_snippet
+                && insert_text
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c == '_')
+            {
                 insert_text = match r_match_signature.captures(message) {
                     Some(m) => {
                         insert_text_format = InsertTextFormat::SNIPPET;

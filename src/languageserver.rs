@@ -37,9 +37,20 @@ fn set_client_text_document(text_document: Option<TextDocumentClientCapabilities
     *data = text_document;
 }
 
-pub fn get_client_capabilities() -> Option<TextDocumentClientCapabilities>{
+pub fn get_client_capabilities() -> Option<TextDocumentClientCapabilities> {
     let data = CLIENT_CAPABILITIES.read().unwrap();
-     data.clone()
+    data.clone()
+}
+
+pub fn client_support_snippet() -> bool {
+    match get_client_capabilities() {
+        Some(c) => c
+            .completion
+            .and_then(|item| item.completion_item)
+            .and_then(|item| item.snippet_support)
+            .unwrap_or(false),
+        _ => false,
+    }
 }
 
 impl Backend {
