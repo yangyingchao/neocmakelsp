@@ -33,20 +33,23 @@ fn convert_to_lsp_snippet(key: &str, input: &str) -> String {
                 if node.kind_id() == SYM_ARGUMENT {
                     i += 1;
                     let start_position = node.start_position();
-                    // preserve newline and leading spaces in snippets.
                     let padding = if last_position.row == start_position.row || v.is_empty() {
                         "".to_owned()
-                    } else if start_position.column == 0 {
-                        "\n".to_owned()
                     } else {
-                        "\n".to_string() + &source[start_position.row][0..start_position.column]
+                        "\n".to_owned() + &source[start_position.row][0..start_position.column]
                     };
-                    v.push(format!(
-                        "{}${{{}:{}}}",
-                        padding,
-                        i,
-                        get_node_content(&source, &node)
-                    ));
+
+                    // support at most 9 tab-stops.
+                    if i < 10 {
+                        v.push(format!(
+                            "{}${{{}:{}}}",
+                            padding,
+                            i,
+                            get_node_content(&source, &node)
+                        ));
+                    } else {
+                        v.push(format!("{}{}", padding, get_node_content(&source, &node)));
+                    }
                     last_position = node.end_position();
                 }
                 match node.next_sibling() {
