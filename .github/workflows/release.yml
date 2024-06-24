@@ -15,7 +15,7 @@ concurrency:
 jobs:
     build:
         name: Build Binary
-        if: contains(github.ref, '-snapshot')
+        if: contains(github.ref, 'yc-hacking')
         strategy:
             matrix:
                 os:
