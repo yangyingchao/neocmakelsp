@@ -21,29 +21,27 @@ pub struct ErrorInfo {
 pub fn checkerror(
     local_path: &Path,
     source: &str,
-    input: tree_sitter::Node,
-    whole: bool,
+    input: tree_sitter::Node<'_>,
+    use_cmake_lint: bool,
 ) -> Option<ErrorInfo> {
-    let future_cmake_lint = if whole {
-        Some(run_cmake_lint(local_path))
+    let future_cmake_lint = if use_cmake_lint {
+        run_cmake_lint(local_path)
     } else {
         None
     };
 
     let mut result = checkerror_inner(local_path, &source.lines().collect(), input);
-    if let Some(future) = future_cmake_lint {
-        if let Some(v) = block_on(future) {
-            let error_info = result.get_or_insert(ErrorInfo { inner: vec![] });
-            for item in v.inner {
-                error_info.inner.push(item);
-            }
+    if let Some(v) = future_cmake_lint {
+        let error_info = result.get_or_insert(ErrorInfo { inner: vec![] });
+        for item in v.inner {
+            error_info.inner.push(item);
         }
     };
 
     result
 }
 
-async fn run_cmake_lint(path: &Path) -> Option<ErrorInfo> {
+fn run_cmake_lint(path: &Path) -> Option<ErrorInfo> {
     if !path.exists() || !CMAKE_LINT_CONFIG.enable_external_cmake_lint {
         return None;
     }

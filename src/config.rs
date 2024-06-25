@@ -84,10 +84,7 @@ mod tests {
 
     #[test]
     fn tst_lint_config() {
-        println!("command_upcase: {}", (*CMAKE_LINT_CONFIG).command_upcase);
-        println!(
-            "enable_external_cmake_lint: {}",
-            (*CMAKE_LINT_CONFIG).enable_external_cmake_lint
-        );
+        assert_eq!((*CMAKE_LINT_CONFIG).command_upcase, "ignore");
+        assert_eq!((*CMAKE_LINT_CONFIG).enable_external_cmake_lint, true);
     }
 }

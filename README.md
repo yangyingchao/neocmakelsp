@@ -153,7 +153,7 @@ When [cmake-lint](https://cmake-format.readthedocs.io/en/latest/cmake-lint.html)
 enable_external_cmake_lint = true # true to use external cmake-lint, or false to disable it
 ```
 
-If `enable_external_cmake_lint` is turned on but `cmake-lint` is not installed, linting stops working without any error message.
+If `enable_external_cmake_lint` is turned on but `cmake-lint` is not installed, external linting will not report any error message.
 
 ### If you want to use watchfile in neovim, set
 
