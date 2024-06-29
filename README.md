@@ -1,8 +1,15 @@
 
 Upstream repo: https://github.com/Decodetalkers/neocmakelsp
 
-This branch is aimed to make neocmakelsp works better with my emacs workflow,
-that is why release are prefixed with character "e".
+This branch is aimed to make neocmakelsp works better with my emacs workflow.
+
+Main changes:
+
+1. `tower-lsp` --> `async-lsp` for better support for 'shutdown' request
+2. remove lots of async tasks: can't understand them good enough for now.
+3. no more tcp connection, only STDIN.
+4. snippets support (ported to upstream)
+5. cmake-lint (ported to upstream)
 
 # CMake LSP implementation based on Tower and Tree-sitter
 
@@ -19,10 +26,6 @@ cargo install neocmakelsp
 ## Setup For neovim
 
 The config of neocmakelsp is in `nvim-lsp-config`, so just follow `nvim-lsp-config` to setup it
-
-neocmakelsp has two start ways: `stdio` and `Tcp`. `Tcp` is for debug. If you want to help me and debug is , you should start it with `Tcp` way.
-
-### Stdio
 
 ```lua
 local configs = require("lspconfig.configs")
@@ -49,47 +52,8 @@ if not configs.neocmake then
 end
 ```
 
-### Tcp
-
-```lua
-if not configs.neocmake then
-    configs.neocmake = {
-        default_config = {
-            cmd = vim.lsp.rpc.connect('127.0.0.1','9257'),
-            filetypes = { "cmake" },
-            root_dir = function(fname)
-                return nvim_lsp.util.find_git_ancestor(fname)
-            end,
-            single_file_support = true,-- suggested
-            on_attach = on_attach, -- on_attach is the on_attach function you defined
-            init_options = {
-                format = {
-                    enable = true
-                }
-            }
-        }
-    }
-    nvim_lsp.neocmake.setup({})
-end
-
-```
 
 ## Setup for helix
-
-### Tcp (good for debug)
-
-```toml
-[[language]]
-name = "neocmake"
-auto-format = true
-language-servers = [{ name = "neocmakelsp" }]
-
-[language-server.neocmakelsp]
-command = "nc"
-args = ["localhost", "9257"]
-```
-
-### Stdio
 
 ```toml
 [[language]]
