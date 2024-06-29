@@ -394,13 +394,13 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.client
-            .log_message(
-                MessageType::INFO,
-                format!("file {:?} closed!", params.text_document.uri),
-            )
-            .await;
+    async fn did_close(&self, _params: DidCloseTextDocumentParams) {
+        // self.client
+        //     .log_message(
+        //         MessageType::INFO,
+        //         format!("file {:?} closed!", params.text_document.uri),
+        //     )
+        //     .await;
         //notify_send("file closed", Type::Info);
     }
     async fn completion(&self, input: CompletionParams) -> Result<Option<CompletionResponse>> {
