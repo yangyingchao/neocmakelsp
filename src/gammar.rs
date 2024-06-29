@@ -1,7 +1,7 @@
+use async_lsp::lsp_types::DiagnosticSeverity;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tower_lsp::lsp_types::DiagnosticSeverity;
 use tree_sitter::Point;
 
 use crate::config::{self, CMAKE_LINT_CONFIG};

@@ -3,8 +3,8 @@ use crate::{
     consts::TREESITTER_CMAKE_LANGUAGE,
     utils::treehelper::{get_position_string, point_to_position},
 };
-use lsp_types::{MessageType, Position, Range, Url};
-use tower_lsp::lsp_types;
+use async_lsp::lsp_types;
+use lsp_types::{Position, Range, Url};
 use tree_sitter::Node;
 mod findpackage;
 mod include;
@@ -19,7 +19,7 @@ pub async fn godef(
     location: Position,
     source: &str,
     originuri: String,
-    client: &tower_lsp::Client,
+    client: &async_lsp::ClientSocket,
     is_jump: bool,
 ) -> Option<Vec<Location>> {
     let mut parse = tree_sitter::Parser::new();
@@ -53,7 +53,7 @@ pub async fn godef(
                     }
                 }
             } else {
-                client.log_message(MessageType::INFO, "Empty").await;
+                // client.log_message(MessageType::INFO, "Empty").await;o
                 None
             }
         }

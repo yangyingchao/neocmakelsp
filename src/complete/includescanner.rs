@@ -1,11 +1,11 @@
 use crate::{consts::TREESITTER_CMAKE_LANGUAGE, utils::treehelper::PositionType};
 
 use super::getsubcomplete;
+use async_lsp::lsp_types;
 use lsp_types::CompletionItem;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use tower_lsp::lsp_types;
 
 use std::sync::{Arc, Mutex};
 

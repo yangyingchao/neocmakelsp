@@ -1,12 +1,12 @@
 use super::Location;
-use lsp_types::{MessageType, Url};
+use async_lsp::lsp_types;
+use async_lsp::ClientSocket;
+use lsp_types::Url;
 use std::path::PathBuf;
-use tower_lsp::lsp_types;
-use tower_lsp::Client;
 pub(super) async fn cmpsubdirectory(
     localpath: String,
     subpath: &str,
-    client: &Client,
+    _client: &ClientSocket,
 ) -> Option<Vec<Location>> {
     let path = PathBuf::from(localpath);
     let dir = path.parent().unwrap();
@@ -26,9 +26,9 @@ pub(super) async fn cmpsubdirectory(
             uri: Url::from_file_path(target).unwrap(),
         }])
     } else {
-        client
-            .log_message(MessageType::INFO, "path not exist")
-            .await;
+        // client
+        //     .log_message(MessageType::INFO, "path not exist")
+        //     .await;
         None
     }
 }

@@ -1,5 +1,5 @@
-use lsp_types::{MessageType, Position, TextEdit};
-use tower_lsp::lsp_types;
+use async_lsp::lsp_types;
+use lsp_types::{Position, TextEdit};
 
 use crate::{consts::TREESITTER_CMAKE_LANGUAGE, utils::treehelper::is_comment};
 
@@ -60,7 +60,7 @@ fn get_space(spacelen: u32, use_space: bool) -> String {
 // use crate::utils::treehelper::point_to_position;
 pub async fn getformat(
     source: &str,
-    client: &tower_lsp::Client,
+    _client: &async_lsp::ClientSocket,
     spacelen: u32,
     use_space: bool,
 ) -> Option<Vec<TextEdit>> {
@@ -70,9 +70,9 @@ pub async fn getformat(
     let tree = parse.parse(source.as_str(), None).unwrap();
 
     if tree.root_node().has_error() {
-        client
-            .log_message(MessageType::WARNING, "Error source")
-            .await;
+        // client
+        //     .log_message(MessageType::WARNING, "Error source")
+        //     .await;
         return None;
     }
     let (mut new_text, endline) = format_content(

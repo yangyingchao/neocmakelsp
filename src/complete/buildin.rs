@@ -1,9 +1,9 @@
 /// buildin Commands and vars
 use anyhow::Result;
+use async_lsp::lsp_types::{CompletionItem, CompletionItemKind, Documentation, InsertTextFormat};
 use once_cell::sync::Lazy;
 use std::process::Command;
 use std::{collections::HashMap, iter::zip};
-use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, Documentation, InsertTextFormat};
 
 use crate::consts::TREESITTER_CMAKE_LANGUAGE;
 use crate::languageserver::client_support_snippet;
@@ -212,7 +212,7 @@ mod tests {
     }
     use std::process::Command;
 
-    use tower_lsp::lsp_types::CompletionItem;
+    use async_lsp::lsp_types::CompletionItem;
 
     use super::BUILDIN_COMMAND;
     #[test]

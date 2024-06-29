@@ -1,11 +1,11 @@
+/// Some tools for treesitter  to lsp_types
+use async_lsp::lsp_types;
 use lsp_types::Position;
 use lsp_types::Range;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::iter::zip;
 use std::process::Command;
-/// Some tools for treesitter  to lsp_types
-use tower_lsp::lsp_types;
 use tree_sitter::{Node, Point};
 
 const SPECIALCOMMANDS: [&str; 3] = [

@@ -15,11 +15,6 @@ const LSP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub enum NeocmakeCli {
     #[command(long_flag = "stdio", about = "run with stdio")]
     Stdio,
-    #[command(long_flag = "tcp", about = "run with tcp")]
-    Tcp {
-        #[arg(long, value_name = "port")]
-        port: Option<u16>,
-    },
     #[command(long_flag = "search", short_flag = 'S', about = "search the packages")]
     Search {
         #[arg(required = true)]

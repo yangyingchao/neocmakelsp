@@ -1,13 +1,10 @@
 //use lsp_types::CompletionItem;
 use super::Location;
 use crate::utils;
-use lsp_types::{MessageType, Url};
-use tower_lsp::lsp_types;
-use tower_lsp::Client;
-pub(super) async fn cmpfindpackage(input: String, client: &Client) -> Option<Vec<Location>> {
-    client
-        .log_message(MessageType::LOG, "Go to Find Package")
-        .await;
+use async_lsp::lsp_types;
+use async_lsp::ClientSocket;
+use lsp_types::Url;
+pub(super) async fn cmpfindpackage(input: String, _client: &ClientSocket) -> Option<Vec<Location>> {
     utils::CMAKE_PACKAGES_WITHKEY.get(&input).map(|context| {
         context
             .tojump

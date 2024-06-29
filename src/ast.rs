@@ -1,9 +1,12 @@
 use crate::consts::TREESITTER_CMAKE_LANGUAGE;
 /// Get the tree of ast
 use crate::utils::treehelper::point_to_position;
-use lsp_types::{DocumentSymbol, DocumentSymbolResponse, MessageType, SymbolKind};
-use tower_lsp::lsp_types;
-use tower_lsp::Client;
+use async_lsp::lsp_types;
+use async_lsp::ClientSocket;
+use lsp_types::{DocumentSymbol, DocumentSymbolResponse, SymbolKind};
+use lsp_types::{LogMessageParams, MessageType};
+
+use async_lsp::LanguageClient;
 
 const COMMAND_KEYWORDS: [&str; 5] = [
     "set",
@@ -12,12 +15,15 @@ const COMMAND_KEYWORDS: [&str; 5] = [
     "target_link_libraries",
     "target_include_directories",
 ];
-pub async fn getast(client: &Client, context: &str) -> Option<DocumentSymbolResponse> {
+pub async fn getast(client: &mut ClientSocket, context: &str) -> Option<DocumentSymbolResponse> {
     let line = context.lines().count();
     if line > 10000 {
         client
-            .log_message(MessageType::INFO, "use simple ast")
-            .await;
+            .log_message(LogMessageParams {
+                typ: MessageType::INFO,
+                message: "use simple ast".into(),
+            })
+            .unwrap();
     }
     let mut parse = tree_sitter::Parser::new();
     parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();

@@ -1,19 +1,11 @@
-use consts::TREESITTER_CMAKE_LANGUAGE;
-use std::io::prelude::*;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
-//use std::process::Command;
-use ini::Ini;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LspService, Server};
-//use tree_sitter::Point;
 use clap::Parser;
+use consts::TREESITTER_CMAKE_LANGUAGE;
+use ini::Ini;
+use std::io::prelude::*;
+use std::path::PathBuf;
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
-use tokio::net::TcpListener;
 mod ast;
 mod clapargs;
 mod complete;
@@ -26,8 +18,19 @@ mod jump;
 mod languageserver;
 mod scansubs;
 mod search;
-mod semantic_token;
 mod utils;
+
+use futures::{AsyncRead, AsyncWrite};
+
+use async_lsp::client_monitor::ClientProcessMonitorLayer;
+use async_lsp::concurrency::ConcurrencyLayer;
+use async_lsp::panic::CatchUnwindLayer;
+use async_lsp::router::Router;
+use async_lsp::server::LifecycleLayer;
+use async_lsp::tracing::TracingLayer;
+use async_lsp::ClientSocket;
+use tower::ServiceBuilder;
+use tracing::Level;
 
 use clapargs::NeocmakeCli;
 
@@ -40,11 +43,11 @@ struct BackendInitInfo {
 #[derive(Debug)]
 struct Backend {
     /// client
-    client: Client,
+    client: ClientSocket,
 
     /// Storage the message of buffers
-    init_info: Arc<Mutex<BackendInitInfo>>,
-    root_path: Arc<Mutex<Option<PathBuf>>>,
+    init_info: BackendInitInfo,
+    root_path: Option<PathBuf>,
 }
 
 fn gitignore() -> Option<Gitignore> {
@@ -78,60 +81,50 @@ fn editconfig_setting() -> Option<(bool, u32)> {
     Some((use_space, indent_size))
 }
 
-#[tokio::main]
+async fn start_server(input: impl AsyncRead, output: impl AsyncWrite) {
+    let (server, _) = async_lsp::MainLoop::new_server(|client| {
+        ServiceBuilder::new()
+            .layer(TracingLayer::default())
+            .layer(LifecycleLayer::default())
+            .layer(CatchUnwindLayer::default())
+            .layer(ConcurrencyLayer::default())
+            .layer(ClientProcessMonitorLayer::new(client.clone()))
+            .service(Router::from_language_server(Backend {
+                client,
+                init_info: BackendInitInfo {
+                    scan_cmake_in_package: false,
+                },
+                root_path: None,
+            }))
+    });
+
+    tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .with_ansi(false)
+        .with_writer(std::io::stderr)
+        .init();
+
+    server.run_buffered(input, output).await.unwrap()
+}
+
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = NeocmakeCli::parse();
     match args {
         NeocmakeCli::Stdio => {
-            tracing_subscriber::fmt().init();
-            let (stdin, stdout) = (tokio::io::stdin(), tokio::io::stdout());
-            let (service, socket) = LspService::new(|client| Backend {
-                client,
-                init_info: Arc::new(Mutex::new(BackendInitInfo {
-                    scan_cmake_in_package: true,
-                })),
-                root_path: Arc::new(Mutex::new(None)),
-            });
-            Server::new(stdin, stdout, socket).serve(service).await;
-        }
-        NeocmakeCli::Tcp { port } => {
-            #[cfg(feature = "runtime-agnostic")]
-            use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
-            tracing_subscriber::fmt().init();
-            let stream = {
-                if let Some(port) = port {
-                    let listener = TcpListener::bind(SocketAddr::new(
-                        std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                        port,
-                    ))
-                    .await
-                    .unwrap();
-                    let (stream, _) = listener.accept().await.unwrap();
-                    stream
-                } else {
-                    let listener = TcpListener::bind(SocketAddr::new(
-                        std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                        9257,
-                    ))
-                    .await
-                    .unwrap();
-                    let (stream, _) = listener.accept().await.unwrap();
-                    stream
-                }
-            };
-
-            let (read, write) = tokio::io::split(stream);
-            #[cfg(feature = "runtime-agnostic")]
-            let (read, write) = (read.compat(), write.compat_write());
-
-            let (service, socket) = LspService::new(|client| Backend {
-                client,
-                init_info: Arc::new(Mutex::new(BackendInitInfo {
-                    scan_cmake_in_package: true,
-                })),
-                root_path: Arc::new(Mutex::new(None)),
-            });
-            Server::new(read, write, socket).serve(service).await;
+            // Prefer truly asynchronous piped stdin/stdout without blocking tasks.
+            #[cfg(unix)]
+            let (stdin, stdout) = (
+                async_lsp::stdio::PipeStdin::lock_tokio().unwrap(),
+                async_lsp::stdio::PipeStdout::lock_tokio().unwrap(),
+            );
+            // Fallback to spawn blocking read/write otherwise.
+            #[cfg(not(unix))]
+            let (stdin, stdout) = (
+                tokio_util::compat::TokioAsyncReadCompatExt::compat(tokio::io::stdin()),
+                tokio_util::compat::TokioAsyncWriteCompatExt::compat_write(tokio::io::stdout()),
+            );
+            start_server(stdin, stdout).await;
         }
         NeocmakeCli::Tree { tree_path, tojson } => {
             match scansubs::get_treedir(&tree_path) {

@@ -7,25 +7,32 @@ use crate::ast;
 use crate::complete;
 use crate::consts::TREESITTER_CMAKE_LANGUAGE;
 use crate::filewatcher;
-use crate::formatting::getformat;
 use crate::gammar::checkerror;
 use crate::jump;
 use crate::scansubs;
-use crate::semantic_token;
-use crate::semantic_token::LEGEND_TYPE;
 use crate::utils::treehelper;
+use async_lsp::lsp_types;
+use async_lsp::lsp_types::*;
+use futures::executor::block_on;
+use lsp_types::{
+    DidChangeConfigurationParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
+    HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
+    MarkedString, MessageType, OneOf, ServerCapabilities, ShowMessageParams,
+};
+
+use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::RwLock;
 use tokio::sync::Mutex;
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types;
-use tower_lsp::lsp_types::*;
-use tower_lsp::LanguageServer;
 use tree_sitter::Parser;
 
+use std::ops::ControlFlow;
+
 use once_cell::sync::Lazy;
+
+use async_lsp::{LanguageClient, LanguageServer, ResponseError};
 
 pub static BUFFERS_CACHE: Lazy<Arc<Mutex<HashMap<lsp_types::Url, String>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
@@ -54,7 +61,7 @@ pub fn client_support_snippet() -> bool {
 }
 
 impl Backend {
-    async fn publish_diagnostics(&self, uri: Url, context: String, use_cmake_lint: bool) {
+    async fn publish_diagnostics(&mut self, uri: Url, context: String, use_cmake_lint: bool) {
         let mut parse = Parser::new();
         parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
         let thetree = parse.parse(&context, None);
@@ -90,35 +97,46 @@ impl Backend {
                 pusheddiagnoses.push(diagnose);
             }
             self.client
-                .publish_diagnostics(uri, pusheddiagnoses, Some(1))
-                .await;
+                .publish_diagnostics(PublishDiagnosticsParams {
+                    uri,
+                    diagnostics: pusheddiagnoses,
+                    version: Some(1),
+                })
+                .unwrap();
         } else {
-            self.client.publish_diagnostics(uri, vec![], None).await;
+            self.client
+                .publish_diagnostics(PublishDiagnosticsParams {
+                    uri,
+                    diagnostics: vec![],
+                    version: None,
+                })
+                .unwrap();
         }
     }
-    async fn update_diagnostics(&self) {
-        let storemap = BUFFERS_CACHE.lock().await;
+
+    fn update_diagnostics(&mut self) {
+        let storemap = block_on(BUFFERS_CACHE.lock());
         for (uri, context) in storemap.iter() {
-            self.publish_diagnostics(uri.clone(), context.to_string(), true)
-                .await;
+            block_on(self.publish_diagnostics(uri.clone(), context.to_string(), true));
         }
     }
 }
 
-#[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, initial: InitializeParams) -> Result<InitializeResult> {
+    type Error = ResponseError;
+    type NotifyResult = ControlFlow<async_lsp::Result<()>>;
+
+    fn initialize(
+        &mut self,
+        initial: InitializeParams,
+    ) -> BoxFuture<'static, Result<InitializeResult, Self::Error>> {
         let initial_config: Config = initial
             .initialization_options
             .and_then(|value| serde_json::from_value(value).unwrap_or(None))
             .unwrap_or_default();
 
         let do_format = initial_config.is_format_enabled();
-
-        let find_cmake_in_package = initial_config.is_scan_cmake_in_package();
-
-        let mut init_info = self.init_info.lock().await;
-        init_info.scan_cmake_in_package = find_cmake_in_package;
+        self.init_info.scan_cmake_in_package = initial_config.is_scan_cmake_in_package();
 
         if let Some(workspace) = initial.capabilities.workspace {
             if let Some(watch_file) = workspace.did_change_watched_files {
@@ -139,87 +157,61 @@ impl LanguageServer for Backend {
         }
 
         if let Some(ref uri) = initial.root_uri {
-            scansubs::scan_all(uri.path()).await;
-            let mut root_path = self.root_path.lock().await;
-            root_path.replace(uri.path().into());
+            block_on(scansubs::scan_all(uri.path()));
+            self.root_path.replace(uri.path().into());
         }
 
         set_client_text_document(initial.capabilities.text_document);
 
         let version: String = env!("CARGO_PKG_VERSION").to_string();
-        Ok(InitializeResult {
-            server_info: Some(ServerInfo {
-                name: "neocmakelsp".to_string(),
-                version: Some(version),
-            }),
-            capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Options(
-                    TextDocumentSyncOptions {
-                        open_close: Some(true),
-                        change: Some(TextDocumentSyncKind::FULL),
-                        will_save: Some(false),
-                        will_save_wait_until: Some(false),
-                        save: Some(TextDocumentSyncSaveOptions::Supported(true)),
-                    },
-                )),
-                completion_provider: Some(CompletionOptions {
-                    resolve_provider: Some(false),
-                    trigger_characters: None,
-                    work_done_progress_options: Default::default(),
-                    all_commit_characters: None,
-                    completion_item: None,
+
+        Box::pin(async move {
+            Ok(InitializeResult {
+                server_info: Some(ServerInfo {
+                    name: "neocmakelsp".to_string(),
+                    version: Some(version),
                 }),
-                document_symbol_provider: Some(OneOf::Left(true)),
-                definition_provider: Some(OneOf::Left(true)),
-                document_formatting_provider: if do_format {
-                    Some(OneOf::Left(true))
-                } else {
-                    None
-                },
-                hover_provider: Some(HoverProviderCapability::Simple(true)),
-                workspace: Some(WorkspaceServerCapabilities {
-                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
-                        supported: Some(true),
-                        change_notifications: Some(OneOf::Left(true)),
+                capabilities: ServerCapabilities {
+                    text_document_sync: Some(TextDocumentSyncCapability::Options(
+                        TextDocumentSyncOptions {
+                            open_close: Some(true),
+                            change: Some(TextDocumentSyncKind::FULL),
+                            will_save: Some(false),
+                            will_save_wait_until: Some(false),
+                            save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                        },
+                    )),
+                    completion_provider: Some(CompletionOptions {
+                        resolve_provider: Some(false),
+                        trigger_characters: None,
+                        work_done_progress_options: Default::default(),
+                        all_commit_characters: None,
+                        completion_item: None,
                     }),
-                    file_operations: None,
-                }),
-                semantic_tokens_provider: if initial_config.enable_semantic_token() {
-                    Some(
-                        SemanticTokensServerCapabilities::SemanticTokensRegistrationOptions(
-                            SemanticTokensRegistrationOptions {
-                                text_document_registration_options: {
-                                    TextDocumentRegistrationOptions {
-                                        document_selector: Some(vec![DocumentFilter {
-                                            language: Some("cmake".to_string()),
-                                            scheme: Some("file".to_string()),
-                                            pattern: None,
-                                        }]),
-                                    }
-                                },
-                                semantic_tokens_options: SemanticTokensOptions {
-                                    work_done_progress_options: WorkDoneProgressOptions::default(),
-                                    legend: SemanticTokensLegend {
-                                        token_types: LEGEND_TYPE.into(),
-                                        token_modifiers: vec![],
-                                    },
-                                    range: None,
-                                    full: Some(SemanticTokensFullOptions::Bool(true)),
-                                },
-                                static_registration_options: StaticRegistrationOptions::default(),
-                            },
-                        ),
-                    )
-                } else {
-                    None
+                    document_symbol_provider: Some(OneOf::Left(true)),
+                    definition_provider: Some(OneOf::Left(true)),
+                    document_formatting_provider: if do_format {
+                        Some(OneOf::Left(true))
+                    } else {
+                        None
+                    },
+                    hover_provider: Some(HoverProviderCapability::Simple(true)),
+                    workspace: Some(WorkspaceServerCapabilities {
+                        workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                            supported: Some(true),
+                            change_notifications: Some(OneOf::Left(true)),
+                        }),
+                        file_operations: None,
+                    }),
+                    semantic_tokens_provider: None,
+                    references_provider: Some(OneOf::Left(true)),
+                    ..ServerCapabilities::default()
                 },
-                references_provider: Some(OneOf::Left(true)),
-                ..ServerCapabilities::default()
-            },
+            })
         })
     }
 
-    async fn initialized(&self, _: InitializedParams) {
+    fn initialized(&mut self, _: InitializedParams) -> Self::NotifyResult {
         let cachefilechangeparms = DidChangeWatchedFilesRegistrationOptions {
             watchers: vec![
                 FileSystemWatcher {
@@ -239,44 +231,60 @@ impl LanguageServer for Backend {
             register_options: Some(serde_json::to_value(cachefilechangeparms).unwrap()),
         };
 
+        let _ = self.client.register_capability(RegistrationParams {
+            registrations: vec![cmakecache_watcher],
+        });
+
         self.client
-            .register_capability(vec![cmakecache_watcher])
-            .await
+            .show_message(ShowMessageParams {
+                typ: MessageType::INFO,
+                message: "initialized!".into(),
+            })
             .unwrap();
-
-        self.client
-            .log_message(MessageType::INFO, "initialized!")
-            .await;
+        ControlFlow::Continue(())
     }
 
-    async fn shutdown(&self) -> Result<()> {
-        Ok(())
+    //     fn(&mut Self, ) -> Pin<Box<(dyn futures::Future<Output = Result<<async_lsp::lsp_types::request::Shutdown as async_lsp::lsp_types::request::Request>::Result, <Self as
+    // LanguageServer>::Error>> + std::marker::Send + 'static)>>
+    //     fn shutdown(&mut self, params: <async_lsp::lsp_types::request::Shutdown as async_lsp::lsp_types::request::Request>::Params)
+    //  {
+    //         Box::pin(self.0.request::<request::Shutdown>(()))
+    //     }
+    // fn shutdown(&mut self) -> Result<()> {
+    //     Ok(())
+    // }
+
+    // async fn did_change_workspace_folders(&self, _: DidChangeWorkspaceFoldersParams) {
+    //     self.client
+    //         .log_message(MessageType::INFO, "workspace folders changed!")
+    //         .await;
+    // }
+
+    fn did_change_configuration(
+        &mut self,
+        _: DidChangeConfigurationParams,
+    ) -> ControlFlow<async_lsp::Result<()>> {
+        ControlFlow::Continue(())
     }
 
-    async fn did_change_workspace_folders(&self, _: DidChangeWorkspaceFoldersParams) {
-        self.client
-            .log_message(MessageType::INFO, "workspace folders changed!")
-            .await;
-    }
-
-    async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
-        self.client
-            .log_message(MessageType::INFO, "configuration changed!")
-            .await;
-    }
-
-    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+    fn did_change_watched_files(
+        &mut self,
+        params: DidChangeWatchedFilesParams,
+    ) -> ControlFlow<Result<(), async_lsp::Error>> {
         for change in params.changes {
             if let Some("CMakeLists.txt") = change.uri.path().split('/').last() {
-                let Some(ref path) = *self.root_path.lock().await else {
+                let Some(ref path) = self.root_path else {
                     continue;
                 };
-                scansubs::scan_all(path).await;
+                block_on(scansubs::scan_all(path));
                 continue;
             }
             self.client
-                .log_message(MessageType::INFO, "CMakeCache changed")
-                .await;
+                .log_message(LogMessageParams {
+                    typ: MessageType::INFO,
+                    message: "CMakeCache changed".into(),
+                })
+                .unwrap();
             if let FileChangeType::DELETED = change.typ {
                 filewatcher::clear_error_packages();
             } else {
@@ -284,65 +292,96 @@ impl LanguageServer for Backend {
                 filewatcher::refresh_error_packages(path);
             }
         }
-        self.update_diagnostics().await;
+        self.update_diagnostics();
         self.client
-            .log_message(MessageType::INFO, "watched files have changed!")
-            .await;
+            .log_message(LogMessageParams {
+                typ: MessageType::INFO,
+                message: "watched files have changed!".into(),
+            })
+            .unwrap();
+        ControlFlow::Continue(())
     }
 
-    async fn did_open(&self, input: DidOpenTextDocumentParams) {
+    fn did_open(
+        &mut self,
+        input: DidOpenTextDocumentParams,
+    ) -> ControlFlow<Result<(), async_lsp::Error>> {
         let mut parse = Parser::new();
         parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
         let uri = input.text_document.uri.clone();
         let context = input.text_document.text.clone();
-        let mut storemap = BUFFERS_CACHE.lock().await;
+        let mut storemap = block_on(BUFFERS_CACHE.lock());
         storemap.entry(uri.clone()).or_insert(context.clone());
-        self.publish_diagnostics(uri, context, true).await;
+        block_on(self.publish_diagnostics(uri, context, true));
         self.client
-            .log_message(MessageType::INFO, "file opened!")
-            .await;
+            .log_message(LogMessageParams {
+                typ: MessageType::INFO,
+                message: "file opened!".into(),
+            })
+            .unwrap();
+
+        ControlFlow::Continue(())
     }
 
-    async fn did_change(&self, input: DidChangeTextDocumentParams) {
+    fn did_change(
+        &mut self,
+        input: DidChangeTextDocumentParams,
+    ) -> ControlFlow<Result<(), async_lsp::Error>> {
         // create a parse
         let uri = input.text_document.uri.clone();
         let context = input.content_changes[0].text.clone();
-        let mut storemap = BUFFERS_CACHE.lock().await;
+        let mut storemap = block_on(BUFFERS_CACHE.lock());
         storemap.insert(uri.clone(), context.clone());
-        if context.lines().count() < 500 {
-            self.publish_diagnostics(uri, context, false).await;
-        }
         self.client
-            .log_message(MessageType::INFO, &format!("{input:?}"))
-            .await;
+            .log_message(LogMessageParams {
+                typ: MessageType::INFO,
+                message: format!("{input:?}"),
+            })
+            .unwrap();
+        ControlFlow::Continue(())
     }
 
-    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+    fn did_save(
+        &mut self,
+        params: DidSaveTextDocumentParams,
+    ) -> ControlFlow<Result<(), async_lsp::Error>> {
         let uri = params.text_document.uri;
-        let storemap = BUFFERS_CACHE.lock().await;
+        // let storemap = BUFFERS_CACHE.lock().await;
 
-        let has_root = self.root_path.lock().await.is_some();
-        if has_root {
-            scansubs::scan_dir(uri.path()).await;
-        };
+        // let has_root = self.root_path.lock().await.is_some();
+        // if has_root {
+        //     scansubs::scan_dir(uri.path()).await;
+        // };
 
-        if let Some(context) = storemap.get(&uri) {
-            if has_root {
-                complete::update_cache(uri.path(), context).await;
-            }
-            self.publish_diagnostics(uri, context.to_string(), true)
-                .await;
-        }
+        // if let Some(context) = storemap.get(&uri) {
+        //     if has_root {
+        //         complete::update_cache(uri.path(), context).await;
+        //     }
+        self.publish_diagnostics(uri, "to be removed...".into(), true);
+        // }
         self.client
-            .log_message(MessageType::INFO, "file saved!")
-            .await;
+            .log_message(LogMessageParams {
+                typ: MessageType::INFO,
+                message: "file saved!".into(),
+            })
+            .unwrap();
+
+        ControlFlow::Continue(())
     }
 
-    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+    fn hover(
+        &mut self,
+        params: HoverParams,
+    ) -> BoxFuture<'static, Result<Option<Hover>, Self::Error>> {
         let position = params.text_document_position_params.position;
         let uri = params.text_document_position_params.text_document.uri;
-        let storemap = BUFFERS_CACHE.lock().await;
-        self.client.log_message(MessageType::INFO, "Hovered!").await;
+        let storemap = block_on(BUFFERS_CACHE.lock());
+        self.client
+            .log_message(LogMessageParams {
+                typ: MessageType::INFO,
+                message: "Hovered!".into(),
+            })
+            .unwrap();
         //notify_send("test", Type::Error);
         match storemap.get(&uri) {
             Some(context) => {
@@ -352,106 +391,134 @@ impl LanguageServer for Backend {
                 let tree = thetree.unwrap();
                 let output = treehelper::get_cmake_doc(position, tree.root_node(), context);
                 match output {
-                    Some(context) => Ok(Some(Hover {
-                        contents: HoverContents::Scalar(MarkedString::String(context)),
-                        range: Some(Range {
-                            start: position,
-                            end: position,
-                        }),
-                    })),
-                    None => Ok(None),
+                    Some(context) => Box::pin(async move {
+                        Ok(Some(Hover {
+                            contents: HoverContents::Scalar(MarkedString::String(context)),
+                            range: Some(Range {
+                                start: position,
+                                end: position,
+                            }),
+                        }))
+                    }),
+                    None => Box::pin(async move { Ok(None) }),
                 }
-                //notify_send(context, Type::Error);
-                //Ok(None)
             }
-            None => Ok(None),
+            None => Box::pin(async move { Ok(None) }),
         }
     }
 
-    async fn formatting(&self, input: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+    fn formatting(
+        &mut self,
+        input: DocumentFormattingParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<TextEdit>>, Self::Error>> {
         self.client
-            .log_message(
-                MessageType::INFO,
-                format!("formatting, space is {}", input.options.insert_spaces),
-            )
-            .await;
-        let uri = input.text_document.uri;
-        let storemap = BUFFERS_CACHE.lock().await;
-        let space_line = if input.options.insert_spaces {
-            input.options.tab_size
-        } else {
-            1
-        };
-        match storemap.get(&uri) {
-            Some(context) => Ok(getformat(
-                context,
-                &self.client,
-                space_line,
-                input.options.insert_spaces,
-            )
-            .await),
-            None => Ok(None),
+            .log_message(LogMessageParams {
+                typ: MessageType::INFO,
+                message: format!("formatting, space is {}", input.options.insert_spaces),
+            })
+            .unwrap();
+
+        self.client
+            .show_message(ShowMessageParams {
+                typ: MessageType::WARNING,
+                message: "not imp".into(),
+            })
+            .unwrap();
+        // let uri = input.text_document.uri;
+        // let storemap = BUFFERS_CACHE.lock().await;
+        // let space_line = if input.options.insert_spaces {
+        //     input.options.tab_size
+        // } else {
+        //     1
+        // };
+        // match storemap.get(&uri) {
+        //     Some(context) => Ok(getformat(
+        //         context,
+        //         &self.client,
+        //         space_line,
+        //         input.options.insert_spaces,
+        //     )
+        //     .await),
+        //     None => Ok(None),
+        // }
+        Box::pin(async move { Ok(None) })
+    }
+
+    fn did_close(
+        &mut self,
+        params: DidCloseTextDocumentParams,
+    ) -> ControlFlow<Result<(), async_lsp::Error>> {
+        self.client
+            .log_message(LogMessageParams {
+                typ: MessageType::INFO,
+                message: format!("file {:?} closed!", params.text_document.uri),
+            })
+            .unwrap();
+        //notify_send("file closed", Type::Info);
+        ControlFlow::Continue(())
+    }
+
+    fn completion(
+        &mut self,
+        input: CompletionParams,
+    ) -> BoxFuture<'static, Result<Option<CompletionResponse>, Self::Error>> {
+        self.client
+            .log_message(LogMessageParams {
+                typ: MessageType::INFO,
+                message: "Complete".into(),
+            })
+            .unwrap();
+        let location = input.text_document_position.position;
+        let uri = input.text_document_position.text_document.uri;
+        let storemap = BUFFERS_CACHE.lock();
+        let urlconent = block_on(storemap).get(&uri).cloned();
+
+        match urlconent {
+            Some(context) => {
+                let completion = complete::getcomplete(
+                    &context,
+                    location,
+                    &self.client,
+                    uri.path(),
+                    self.init_info.scan_cmake_in_package,
+                );
+                Box::pin(async move { Ok(completion) })
+            }
+            None => Box::pin(async move { Ok(None) }),
         }
     }
 
-    async fn did_close(&self, _params: DidCloseTextDocumentParams) {
-        // self.client
-        //     .log_message(
-        //         MessageType::INFO,
-        //         format!("file {:?} closed!", params.text_document.uri),
-        //     )
-        //     .await;
-        //notify_send("file closed", Type::Info);
-    }
-    async fn completion(&self, input: CompletionParams) -> Result<Option<CompletionResponse>> {
-        self.client.log_message(MessageType::INFO, "Complete").await;
-        let location = input.text_document_position.position;
-        let uri = input.text_document_position.text_document.uri;
-        let storemap = BUFFERS_CACHE.lock().await;
-        let urlconent = storemap.get(&uri).cloned();
-        drop(storemap);
-        match urlconent {
-            Some(context) => Ok(complete::getcomplete(
-                &context,
-                location,
-                &self.client,
-                uri.path(),
-                self.init_info.lock().await.scan_cmake_in_package,
-            )
-            .await),
-            None => Ok(None),
-        }
-    }
-    async fn references(&self, input: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let uri = input.text_document_position.text_document.uri;
-        //println!("{:?}", uri);
-        let location = input.text_document_position.position;
-        let storemap = BUFFERS_CACHE.lock().await;
-        match storemap.get(&uri) {
-            Some(context) => {
-                let mut parse = Parser::new();
-                parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
-                //notify_send(context, Type::Error);
-                Ok(jump::godef(
-                    location,
-                    context,
-                    uri.path().to_string(),
-                    &self.client,
-                    false,
-                )
-                .await)
-            }
-            None => Ok(None),
-        }
-    }
-    async fn goto_definition(
-        &self,
+    // async fn references(&self, input: ReferenceParams) -> Result<Option<Vec<Location>>> {
+    //     let uri = input.text_document_position.text_document.uri;
+    //     //println!("{:?}", uri);
+    //     let location = input.text_document_position.position;
+    //     let storemap = BUFFERS_CACHE.lock().await;
+    //     match storemap.get(&uri) {
+    //         Some(context) => {
+    //             let mut parse = Parser::new();
+    //             parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
+    //             //notify_send(context, Type::Error);
+    //             Ok(jump::godef(
+    //                 location,
+    //                 context,
+    //                 uri.path().to_string(),
+    //                 &self.client,
+    //                 false,
+    //             )
+    //             .await)
+    //         }
+    //         None => Ok(None),
+    //     }
+    // }
+
+    fn definition(
+        &mut self,
         input: GotoDefinitionParams,
-    ) -> Result<Option<GotoDefinitionResponse>> {
+    ) -> BoxFuture<'static, Result<Option<GotoDefinitionResponse>, ResponseError>> {
         let uri = input.text_document_position_params.text_document.uri;
         let location = input.text_document_position_params.position;
-        let storemap = BUFFERS_CACHE.lock().await;
-        match storemap.get(&uri) {
+        let storemap = block_on(BUFFERS_CACHE.lock());
+        let result = match storemap.get(&uri) {
             Some(context) => {
                 let mut parse = Parser::new();
                 parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
@@ -461,16 +528,15 @@ impl LanguageServer for Backend {
                     treehelper::get_position_range(location, tree.root_node());
 
                 //notify_send(context, Type::Error);
-                match jump::godef(
+                block_on(jump::godef(
                     location,
                     context,
                     uri.path().to_string(),
                     &self.client,
                     true,
-                )
-                .await
-                {
-                    Some(range) => Ok(Some(GotoDefinitionResponse::Link({
+                ))
+                .map(|range| {
+                    GotoDefinitionResponse::Link({
                         range
                             .iter()
                             .filter(|input| match origin_selection_range {
@@ -484,39 +550,42 @@ impl LanguageServer for Backend {
                                 target_selection_range: range.range,
                             })
                             .collect()
-                    }))),
-                    None => Ok(None),
-                }
+                    })
+                })
 
                 //Ok(None)
             }
-            None => Ok(None),
-        }
-        //Ok(None)
+            None => None,
+        };
+        Box::pin(async move { Ok(result) })
     }
-    async fn document_symbol(
-        &self,
+
+    fn document_symbol(
+        &mut self,
         input: DocumentSymbolParams,
-    ) -> Result<Option<DocumentSymbolResponse>> {
+    ) -> BoxFuture<'static, Result<Option<DocumentSymbolResponse>, Self::Error>> {
         let uri = input.text_document.uri.clone();
-        let storemap = BUFFERS_CACHE.lock().await;
-        match storemap.get(&uri) {
-            Some(context) => Ok(ast::getast(&self.client, context).await),
-            None => Ok(None),
-        }
+        let storemap = block_on(BUFFERS_CACHE.lock());
+        let result = match storemap.get(&uri) {
+            Some(context) => block_on(ast::getast(&mut self.client, context)),
+            None => None,
+        };
+
+        Box::pin(async move { Ok(result) })
     }
-    async fn semantic_tokens_full(
-        &self,
-        params: SemanticTokensParams,
-    ) -> Result<Option<SemanticTokensResult>> {
-        let uri = params.text_document.uri.clone();
-        self.client
-            .log_message(MessageType::LOG, "semantic_token_full")
-            .await;
-        let storemap = BUFFERS_CACHE.lock().await;
-        match storemap.get(&uri) {
-            Some(context) => Ok(semantic_token::semantic_token(&self.client, context).await),
-            None => Ok(None),
-        }
-    }
+
+    // async fn semantic_tokens_full(
+    //     &self,
+    //     params: SemanticTokensParams,
+    // ) -> Result<Option<SemanticTokensResult>> {
+    //     let uri = params.text_document.uri.clone();
+    //     self.client
+    //         .log_message(MessageType::LOG, "semantic_token_full")
+    //         .await;
+    //     let storemap = BUFFERS_CACHE.lock().await;
+    //     match storemap.get(&uri) {
+    //         Some(context) => Ok(semantic_token::semantic_token(&self.client, context).await),
+    //         None => Ok(None),
+    //     }
+    // }
 }

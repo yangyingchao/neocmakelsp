@@ -17,10 +17,6 @@ impl Config {
     pub fn is_scan_cmake_in_package(&self) -> bool {
         self.scan_cmake_in_package.unwrap_or(true)
     }
-
-    pub fn enable_semantic_token(&self) -> bool {
-        self.semantic_token.unwrap_or(false)
-    }
 }
 
 impl Default for Config {

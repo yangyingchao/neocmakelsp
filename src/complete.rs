@@ -4,19 +4,20 @@ mod includescanner;
 use crate::consts::TREESITTER_CMAKE_LANGUAGE;
 use crate::languageserver::BUFFERS_CACHE;
 use crate::scansubs::TREE_MAP;
+use crate::utils;
 use crate::utils::get_node_content;
 use crate::utils::treehelper::{get_pos_type, PositionType};
-use crate::{utils, CompletionResponse};
+use async_lsp::lsp_types;
+use async_lsp::lsp_types::{
+    CompletionItem, CompletionItemKind, CompletionResponse, Documentation, Position,
+};
 use buildin::{BUILDIN_COMMAND, BUILDIN_MODULE, BUILDIN_VARIABLE};
+use futures::executor::block_on;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs;
 use tokio::sync::Mutex;
-use tower_lsp::lsp_types;
-use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, Documentation, MessageType, Position,
-};
 
 use once_cell::sync::Lazy;
 use substring::Substring;
@@ -98,10 +99,10 @@ pub async fn get_cached_completion<P: AsRef<Path>>(path: P) -> Vec<CompletionIte
 }
 
 /// get the complete messages
-pub async fn getcomplete(
+pub fn getcomplete(
     source: &str,
     location: Position,
-    client: &tower_lsp::Client,
+    _client: &async_lsp::ClientSocket,
     local_path: &str,
     find_cmake_in_package: bool,
 ) -> Option<CompletionResponse> {
@@ -110,7 +111,7 @@ pub async fn getcomplete(
     let thetree = parse.parse(source, None);
     let tree = thetree.unwrap();
     let mut complete: Vec<CompletionItem> = vec![];
-    let mut cached_compeletion = get_cached_completion(local_path).await;
+    let mut cached_compeletion = block_on(get_cached_completion(local_path));
     if !cached_compeletion.is_empty() {
         complete.append(&mut cached_compeletion);
     }
@@ -164,7 +165,12 @@ pub async fn getcomplete(
     }
 
     if complete.is_empty() {
-        client.log_message(MessageType::INFO, "Empty").await;
+        // client
+        //     .log_message(LogMessageParams {
+        //         typ: MessageType::INFO,
+        //         message: "Empty".into(),
+        //     })
+        //     .unwrap();
         None
     } else if !text.is_empty() {
         Some(CompletionResponse::Array(
