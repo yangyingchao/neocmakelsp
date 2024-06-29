@@ -1,4 +1,3 @@
-use futures::executor::block_on;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -251,7 +250,7 @@ fn gammer_passed_check() {
     let source = include_str!("../assert/gammer/include_check.cmake");
     let mut parse = tree_sitter::Parser::new();
     parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
-    let thetree = parse.parse(&source, None).unwrap();
+    let thetree = parse.parse(source, None).unwrap();
 
     checkerror_inner(
         std::path::Path::new("."),

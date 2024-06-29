@@ -56,6 +56,6 @@ pub(super) async fn cmpinclude(
 }
 #[test]
 fn ut_ismodule() {
-    assert_eq!(ismodule("GNUInstall"), true);
-    assert_eq!(ismodule("test.cmake"), false);
+    assert!(ismodule("GNUInstall"));
+    assert!(!ismodule("test.cmake"));
 }

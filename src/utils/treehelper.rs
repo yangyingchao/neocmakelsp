@@ -379,7 +379,7 @@ fn tst_line_comment() {
 A#ss\" #sss)";
     let mut parse = tree_sitter::Parser::new();
     parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
-    let tree = parse.parse(&source, None).unwrap();
+    let tree = parse.parse(source, None).unwrap();
     let input = tree.root_node();
     assert!(!is_comment(Point { row: 1, column: 1 }, input));
     assert!(is_comment(Point { row: 1, column: 8 }, input));
