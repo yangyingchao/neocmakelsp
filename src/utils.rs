@@ -2,9 +2,6 @@ mod findpackage;
 pub mod treehelper;
 use std::path::PathBuf;
 
-//use anyhow::Result;
-//use once_cell::sync::Lazy;
-//use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Debug, Serialize, Clone)]
@@ -33,30 +30,42 @@ pub struct CMakePackage {
 pub use findpackage::*;
 use tree_sitter::Node;
 
-pub fn get_node_content(source: &[&str], node: &Node) -> String {
+pub fn get_range_content(
+    source: &[&str],
+    row_start: usize,
+    column_start: usize,
+    row_end: usize,
+    column_end: usize,
+) -> String {
     let mut content: String;
-    let x = node.start_position().column;
-    let y = node.end_position().column;
-
-    let row_start = node.start_position().row;
-    let row_end = node.end_position().row;
 
     if row_start == row_end {
-        content = source[row_start][x..y].to_string();
+        assert!(column_start <= column_end);
+        content = source[row_start][column_start..column_end].to_string();
     } else {
         let mut row = row_start;
-        content = source[row][x..].to_string();
+        content = source[row][column_start..].to_string();
         row += 1;
 
         while row < row_end {
-            content = format!("{} {}", content, source[row]);
+            content = format!("{}\n{}", content, source[row]);
             row += 1;
         }
 
         if row != row_start {
             assert_eq!(row, row_end);
-            content = format!("{} {}", content, &source[row][..y])
+            content = format!("{}\n{}", content, &source[row][..column_end])
         }
     }
     content
+}
+
+pub fn get_node_content(source: &[&str], node: &Node) -> String {
+    get_range_content(
+        source,
+        node.start_position().row,
+        node.start_position().column,
+        node.end_position().row,
+        node.end_position().column,
+    )
 }

@@ -233,44 +233,6 @@ pub enum PositionType {
     TargetLink,
 }
 
-fn location_range_contain(start_point: Point, end_point: Point, location: Point) -> bool {
-    if start_point.row > location.row || end_point.row < location.row {
-        return false;
-    }
-    if start_point.row == end_point.row {
-        return start_point.column <= location.column && end_point.column >= location.column;
-    }
-    if start_point.row == location.row {
-        return start_point.column <= location.column;
-    }
-    if end_point.row == location.row {
-        return end_point.column >= location.column;
-    }
-    true
-}
-
-pub fn is_comment(location: Point, root: Node) -> bool {
-    if !location_range_contain(root.start_position(), root.end_position(), location) {
-        return false;
-    }
-    if root.kind() == "line_comment" {
-        return true;
-    }
-    let mut cursor = root.walk();
-    for child in root.children(&mut cursor) {
-        if !location_range_contain(child.start_position(), child.end_position(), location) {
-            continue;
-        }
-        if child.kind() == "line_comment" {
-            return true;
-        }
-        if child.child_count() != 0 && is_comment(location, child) {
-            return true;
-        }
-    }
-    false
-}
-
 // FIXME: there is bug
 // find_package(SS)
 // cannot get the type of find_package

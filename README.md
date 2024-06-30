@@ -3,13 +3,16 @@ Upstream repo: https://github.com/Decodetalkers/neocmakelsp
 
 This branch is aimed to make neocmakelsp works better with my emacs workflow.
 
+
 Main changes:
 
-1. `tower-lsp` --> `async-lsp` for better support for 'shutdown' request
-2. remove lots of async tasks: can't understand them good enough for now.
-3. no more tcp connection, only STDIN.
-4. snippets support (ported to upstream)
-5. cmake-lint (ported to upstream)
+1. **PURE LSP SERVER**
+2. `tower-lsp` --> `async-lsp` for better support for 'shutdown' request
+3. remove lots of async tasks: can't understand them good enough for now.
+4. no more tcp connection, only STDIN.
+5. snippets support (ported to upstream)
+6. cmake-lint (ported to upstream)
+
 
 # CMake LSP implementation based on Tower and Tree-sitter
 

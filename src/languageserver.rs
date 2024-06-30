@@ -7,7 +7,9 @@ use crate::ast;
 use crate::complete;
 use crate::consts::TREESITTER_CMAKE_LANGUAGE;
 use crate::filewatcher;
-use crate::gammar::checkerror;
+use crate::formatting::format_range;
+use crate::formatting::getformat;
+use crate::grammar::checkerror;
 use crate::jump;
 use crate::scansubs;
 use crate::utils::treehelper;
@@ -135,7 +137,6 @@ impl LanguageServer for Backend {
             .and_then(|value| serde_json::from_value(value).unwrap_or(None))
             .unwrap_or_default();
 
-        let do_format = initial_config.is_format_enabled();
         self.init_info.scan_cmake_in_package = initial_config.is_scan_cmake_in_package();
 
         if let Some(workspace) = initial.capabilities.workspace {
@@ -144,6 +145,7 @@ impl LanguageServer for Backend {
                     watch_file.dynamic_registration,
                     watch_file.relative_pattern_support,
                 ) {
+                    #[allow(deprecated)]
                     if let Some(ref uri) = initial.root_uri {
                         let path = std::path::Path::new(uri.path())
                             .join("build")
@@ -156,6 +158,7 @@ impl LanguageServer for Backend {
             }
         }
 
+        #[allow(deprecated)]
         if let Some(ref uri) = initial.root_uri {
             block_on(scansubs::scan_all(uri.path()));
             self.root_path.replace(uri.path().into());
@@ -190,11 +193,8 @@ impl LanguageServer for Backend {
                     }),
                     document_symbol_provider: Some(OneOf::Left(true)),
                     definition_provider: Some(OneOf::Left(true)),
-                    document_formatting_provider: if do_format {
-                        Some(OneOf::Left(true))
-                    } else {
-                        None
-                    },
+                    document_formatting_provider: Some(OneOf::Left(true)),
+                    document_range_formatting_provider: Some(OneOf::Left(true)),
                     hover_provider: Some(HoverProviderCapability::Simple(true)),
                     workspace: Some(WorkspaceServerCapabilities {
                         workspace_folders: Some(WorkspaceFoldersServerCapabilities {
@@ -231,6 +231,7 @@ impl LanguageServer for Backend {
             register_options: Some(serde_json::to_value(cachefilechangeparms).unwrap()),
         };
 
+        // TODO: block ???
         let _ = self.client.register_capability(RegistrationParams {
             registrations: vec![cmakecache_watcher],
         });
@@ -243,22 +244,6 @@ impl LanguageServer for Backend {
             .unwrap();
         ControlFlow::Continue(())
     }
-
-    //     fn(&mut Self, ) -> Pin<Box<(dyn futures::Future<Output = Result<<async_lsp::lsp_types::request::Shutdown as async_lsp::lsp_types::request::Request>::Result, <Self as
-    // LanguageServer>::Error>> + std::marker::Send + 'static)>>
-    //     fn shutdown(&mut self, params: <async_lsp::lsp_types::request::Shutdown as async_lsp::lsp_types::request::Request>::Params)
-    //  {
-    //         Box::pin(self.0.request::<request::Shutdown>(()))
-    //     }
-    // fn shutdown(&mut self) -> Result<()> {
-    //     Ok(())
-    // }
-
-    // async fn did_change_workspace_folders(&self, _: DidChangeWorkspaceFoldersParams) {
-    //     self.client
-    //         .log_message(MessageType::INFO, "workspace folders changed!")
-    //         .await;
-    // }
 
     fn did_change_configuration(
         &mut self,
@@ -346,19 +331,25 @@ impl LanguageServer for Backend {
         params: DidSaveTextDocumentParams,
     ) -> ControlFlow<Result<(), async_lsp::Error>> {
         let uri = params.text_document.uri;
-        // let storemap = BUFFERS_CACHE.lock().await;
 
-        // let has_root = self.root_path.lock().await.is_some();
-        // if has_root {
-        //     scansubs::scan_dir(uri.path()).await;
-        // };
+        let has_root = self.root_path.is_some();
+        if has_root {
+            block_on(scansubs::scan_dir(uri.path()));
+        };
 
-        // if let Some(context) = storemap.get(&uri) {
-        //     if has_root {
-        //         complete::update_cache(uri.path(), context).await;
-        //     }
-        self.publish_diagnostics(uri, "to be removed...".into(), true);
-        // }
+        if let Some(context) = params.text {
+            let mut storemap = block_on(BUFFERS_CACHE.lock());
+            storemap.insert(uri.clone(), context.clone());
+        };
+
+        let storemap = block_on(BUFFERS_CACHE.lock());
+        if let Some(context) = storemap.get(&uri) {
+            if has_root {
+                block_on(complete::update_cache(uri.path(), context));
+            }
+        }
+        block_on(self.publish_diagnostics(uri, "to be removed...".into(), true));
+
         self.client
             .log_message(LogMessageParams {
                 typ: MessageType::INFO,
@@ -382,7 +373,7 @@ impl LanguageServer for Backend {
                 message: "Hovered!".into(),
             })
             .unwrap();
-        //notify_send("test", Type::Error);
+
         match storemap.get(&uri) {
             Some(context) => {
                 let mut parse = Parser::new();
@@ -418,30 +409,34 @@ impl LanguageServer for Backend {
             })
             .unwrap();
 
+        let result = getformat(Path::new(input.text_document.uri.path()));
+        Box::pin(async move { Ok(result) })
+    }
+
+    fn range_formatting(
+        &mut self,
+        input: DocumentRangeFormattingParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<TextEdit>>, Self::Error>> {
         self.client
-            .show_message(ShowMessageParams {
-                typ: MessageType::WARNING,
-                message: "not imp".into(),
+            .log_message(LogMessageParams {
+                typ: MessageType::INFO,
+                message: format!("range_formatting, space is {}", input.options.insert_spaces),
             })
             .unwrap();
-        // let uri = input.text_document.uri;
-        // let storemap = BUFFERS_CACHE.lock().await;
-        // let space_line = if input.options.insert_spaces {
-        //     input.options.tab_size
-        // } else {
-        //     1
-        // };
-        // match storemap.get(&uri) {
-        //     Some(context) => Ok(getformat(
-        //         context,
-        //         &self.client,
-        //         space_line,
-        //         input.options.insert_spaces,
-        //     )
-        //     .await),
-        //     None => Ok(None),
-        // }
-        Box::pin(async move { Ok(None) })
+
+        let storemap = block_on(BUFFERS_CACHE.lock());
+        let result = if let Some(context) = storemap.get(&input.text_document.uri) {
+            format_range(context, input.range)
+        } else {
+            self.client
+                .show_message(ShowMessageParams {
+                    typ: MessageType::ERROR,
+                    message: "not cached...".into(),
+                })
+                .unwrap();
+            None
+        };
+        Box::pin(async move { Ok(result) })
     }
 
     fn did_close(
@@ -488,28 +483,30 @@ impl LanguageServer for Backend {
         }
     }
 
-    // async fn references(&self, input: ReferenceParams) -> Result<Option<Vec<Location>>> {
-    //     let uri = input.text_document_position.text_document.uri;
-    //     //println!("{:?}", uri);
-    //     let location = input.text_document_position.position;
-    //     let storemap = BUFFERS_CACHE.lock().await;
-    //     match storemap.get(&uri) {
-    //         Some(context) => {
-    //             let mut parse = Parser::new();
-    //             parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
-    //             //notify_send(context, Type::Error);
-    //             Ok(jump::godef(
-    //                 location,
-    //                 context,
-    //                 uri.path().to_string(),
-    //                 &self.client,
-    //                 false,
-    //             )
-    //             .await)
-    //         }
-    //         None => Ok(None),
-    //     }
-    // }
+    fn references(
+        &mut self,
+        input: ReferenceParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<Location>>, Self::Error>> {
+        let uri = input.text_document_position.text_document.uri;
+        let location = input.text_document_position.position;
+        let storemap = block_on(BUFFERS_CACHE.lock());
+        let result = match storemap.get(&uri) {
+            Some(context) => {
+                let mut parse = Parser::new();
+                parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
+                //notify_send(context, Type::Error);
+                block_on(jump::godef(
+                    location,
+                    context,
+                    uri.path().to_string(),
+                    &self.client,
+                    false,
+                ))
+            }
+            None => None,
+        };
+        Box::pin(async move { Ok(result) })
+    }
 
     fn definition(
         &mut self,
@@ -573,19 +570,4 @@ impl LanguageServer for Backend {
 
         Box::pin(async move { Ok(result) })
     }
-
-    // async fn semantic_tokens_full(
-    //     &self,
-    //     params: SemanticTokensParams,
-    // ) -> Result<Option<SemanticTokensResult>> {
-    //     let uri = params.text_document.uri.clone();
-    //     self.client
-    //         .log_message(MessageType::LOG, "semantic_token_full")
-    //         .await;
-    //     let storemap = BUFFERS_CACHE.lock().await;
-    //     match storemap.get(&uri) {
-    //         Some(context) => Ok(semantic_token::semantic_token(&self.client, context).await),
-    //         None => Ok(None),
-    //     }
-    // }
 }
