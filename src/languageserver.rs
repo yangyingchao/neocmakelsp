@@ -15,6 +15,7 @@ use crate::scansubs;
 use crate::utils::treehelper;
 use async_lsp::lsp_types;
 use async_lsp::lsp_types::*;
+use async_lsp::ErrorCode;
 use futures::executor::block_on;
 use lsp_types::{
     DidChangeConfigurationParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
@@ -409,8 +410,12 @@ impl LanguageServer for Backend {
             })
             .unwrap();
 
-        let result = getformat(Path::new(input.text_document.uri.path()));
-        Box::pin(async move { Ok(result) })
+        match getformat(Path::new(input.text_document.uri.path())) {
+            Ok(result) => Box::pin(async move { Ok(result) }),
+            Err(err) => {
+                Box::pin(async move { Err(ResponseError::new(ErrorCode::INTERNAL_ERROR, err)) })
+            }
+        }
     }
 
     fn range_formatting(
@@ -425,18 +430,20 @@ impl LanguageServer for Backend {
             .unwrap();
 
         let storemap = block_on(BUFFERS_CACHE.lock());
-        let result = if let Some(context) = storemap.get(&input.text_document.uri) {
-            format_range(context, input.range)
-        } else {
-            self.client
-                .show_message(ShowMessageParams {
-                    typ: MessageType::ERROR,
-                    message: "not cached...".into(),
-                })
-                .unwrap();
-            None
-        };
-        Box::pin(async move { Ok(result) })
+        match storemap.get(&input.text_document.uri) {
+            Some(context) => match format_range(context, input.range) {
+                Ok(result) => Box::pin(async move { Ok(result) }),
+                Err(err) => {
+                    Box::pin(async move { Err(ResponseError::new(ErrorCode::INTERNAL_ERROR, err)) })
+                }
+            },
+            _ => Box::pin(async move {
+                Err(ResponseError::new(
+                    ErrorCode::INTERNAL_ERROR,
+                    "file not cached".to_owned(),
+                ))
+            }),
+        }
     }
 
     fn did_close(
@@ -488,6 +495,7 @@ impl LanguageServer for Backend {
         input: ReferenceParams,
     ) -> BoxFuture<'static, Result<Option<Vec<Location>>, Self::Error>> {
         let uri = input.text_document_position.text_document.uri;
+
         let location = input.text_document_position.position;
         let storemap = block_on(BUFFERS_CACHE.lock());
         let result = match storemap.get(&uri) {

@@ -1,6 +1,9 @@
 mod findpackage;
 pub mod treehelper;
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    process::{Command, Stdio},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -68,4 +71,50 @@ pub fn get_node_content(source: &[&str], node: &Node) -> String {
         node.end_position().row,
         node.end_position().column,
     )
+}
+
+pub fn execute_command(
+    command: &str,
+    args: &[&str],
+) -> Result<(i32, String, String), std::io::Error> {
+    let child_process = Command::new(command)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let output = child_process.wait_with_output()?;
+    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    Ok((exit_code, stdout, stderr))
+}
+
+#[test]
+fn test_command_execution() {
+    // normal command, should not error.
+    if let Ok(result) = execute_command("ls", &["-a", "-l"]) {
+        let (code, out, err) = result;
+        assert_eq!(code, 0);
+        assert!(!out.is_empty());
+        assert!(err.is_empty());
+    } else {
+        assert!(false);
+    };
+
+    if let Ok(result) = execute_command("ls", &["-a", "-l", "/target_dir_does_not_exist"]) {
+        let (code, out, err) = result;
+        assert_ne!(code, 0);
+        assert!(out.is_empty());
+        assert!(!err.is_empty());
+    } else {
+        assert!(false);
+    };
+
+    if let Err(err) = execute_command("command_not_exist", &["-a", "-l"]) {
+        println!("{}", err);
+    } else {
+        assert!(false);
+    };
 }
