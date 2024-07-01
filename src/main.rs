@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 mod ast;
 mod complete;
-mod config;
 mod consts;
 mod filewatcher;
 mod formatting;
