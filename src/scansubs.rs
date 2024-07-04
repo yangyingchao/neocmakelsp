@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use futures::{executor::block_on, Future};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -18,6 +19,12 @@ pub type TreeKey = HashMap<PathBuf, PathBuf>;
 // NOTE: here get the struct of the tree
 // Cache the data of the struct
 pub static TREE_MAP: Lazy<Arc<Mutex<TreeKey>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+pub fn schedule_scan_all(root: String) -> tokio::task::JoinHandle<()> {
+    tokio::task::spawn_blocking(move || {
+        block_on(scan_all(root));
+    })
+}
 
 pub async fn scan_all<P: AsRef<Path>>(project_root: P) {
     let root_cmake = project_root.as_ref().join("CMakeLists.txt");

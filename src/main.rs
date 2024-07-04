@@ -38,6 +38,8 @@ struct Backend {
     /// Storage the message of buffers
     init_info: BackendInitInfo,
     root_path: Option<PathBuf>,
+
+    scan_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 async fn start_server(input: impl AsyncRead, output: impl AsyncWrite) {
@@ -54,6 +56,7 @@ async fn start_server(input: impl AsyncRead, output: impl AsyncWrite) {
                     scan_cmake_in_package: false,
                 },
                 root_path: None,
+                scan_handle: None,
             }))
     });
 

@@ -46,7 +46,7 @@ fn run_cmake_lint(path: &Path) -> Option<ErrorInfo> {
 
     if let Ok(result) = execute_command("cmake-lint", &[path.to_str().unwrap()]) {
         let (code, out, _err) = result;
-        if code == 0 {
+        if code <= 1 {
             let re = regex::Regex::new(
                 r#"(?P<line>\d+),(?P<column>\d+): (?P<message>\[(?P<severity>[A-Z])\d+\]\s+.*)"#,
             )

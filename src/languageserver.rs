@@ -12,6 +12,7 @@ use crate::formatting::getformat;
 use crate::grammar::checkerror;
 use crate::jump;
 use crate::scansubs;
+use crate::scansubs::schedule_scan_all;
 use crate::utils::treehelper;
 use async_lsp::lsp_types;
 use async_lsp::lsp_types::*;
@@ -160,8 +161,9 @@ impl LanguageServer for Backend {
         }
 
         #[allow(deprecated)]
-        if let Some(ref uri) = initial.root_uri {
-            block_on(scansubs::scan_all(uri.path()));
+        if let Some(uri) = initial.root_uri.clone() {
+            self.scan_handle
+                .replace(schedule_scan_all(uri.path().to_string()));
             self.root_path.replace(uri.path().into());
         }
 
@@ -262,7 +264,13 @@ impl LanguageServer for Backend {
                 let Some(ref path) = self.root_path else {
                     continue;
                 };
-                block_on(scansubs::scan_all(path));
+
+                if self.scan_handle.is_some() {
+                    let _ = block_on(self.scan_handle.as_mut().unwrap());
+                }
+                self.scan_handle.replace(scansubs::schedule_scan_all(
+                    path.to_str().unwrap().to_string(),
+                ));
                 continue;
             }
             self.client
