@@ -66,12 +66,10 @@ async fn start_server(input: impl AsyncRead, output: impl AsyncWrite) {
     server.run_buffered(input, output).await.unwrap()
 }
 
-const LSP_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 #[derive(Parser)]
 #[command(long_about = None, about = "CMake Lsp implementation based on async-lsp and Tree-sitter",
     arg_required_else_help = true,    author = "Cris",
-    version=LSP_VERSION )]
+    version )]
 struct Cli {
     #[arg(long = "stdio", help = "run with stdio (default and only option...)")]
     stdio: bool,
