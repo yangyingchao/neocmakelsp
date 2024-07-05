@@ -39,6 +39,9 @@ pub fn checkerror(
     result
 }
 
+const RE_MATCH_LINT_RESULT: &str =
+    r#"(?P<line>\d+)(,(?P<column>\d+))?: (?P<message>\[(?P<severity>[A-Z])\d+\]\s+.*)"#;
+
 fn run_cmake_lint(path: &Path) -> Option<ErrorInfo> {
     if !path.exists() {
         return None;
@@ -47,10 +50,7 @@ fn run_cmake_lint(path: &Path) -> Option<ErrorInfo> {
     if let Ok(result) = execute_command("cmake-lint", &[path.to_str().unwrap()]) {
         let (code, out, _err) = result;
         if code <= 1 {
-            let re = regex::Regex::new(
-                r#"(?P<line>\d+),(?P<column>\d+): (?P<message>\[(?P<severity>[A-Z])\d+\]\s+.*)"#,
-            )
-            .unwrap();
+            let re = regex::Regex::new(RE_MATCH_LINT_RESULT).unwrap();
             let mut info = vec![];
             for input in out.lines() {
                 if let Some(m) = re.captures(input) {
@@ -61,7 +61,11 @@ fn run_cmake_lint(path: &Path) -> Option<ErrorInfo> {
                     };
 
                     let row = m.name("line").unwrap().as_str().parse().unwrap_or(1) - 1;
-                    let column = m.name("column").unwrap().as_str().parse().unwrap_or(0);
+                    let column = if let Some(m) = m.name("column") {
+                        m.as_str().parse().unwrap()
+                    } else {
+                        0
+                    };
                     let message = m.name("message").unwrap().as_str().to_owned();
 
                     let start_point = Point { row, column };
@@ -251,4 +255,34 @@ fn gammer_passed_check() {
         &source.lines().collect(),
         thetree.root_node(),
     );
+}
+
+#[test]
+fn test_lint_regex() {
+    let input = r#"aa.cmake:38,00: [C0305] too many newlines between statements
+aa.cmake:46: [C0301] Line too long (84/80)
+aa.cmake:51,00: [C0111] Missing docstring on function or macro declaration
+aa.cmake:55: [C0301] Line too long (133/80)
+aa.cmake:56: [C0301] Line too long (143/80)
+aa.cmake:57: [C0301] Line too long (145/80)"#;
+    let re = regex::Regex::new(RE_MATCH_LINT_RESULT).unwrap();
+
+    for s in input.split('\n') {
+        match re.captures(s) {
+            Some(m) => {
+                let row = m.name("line").unwrap().as_str().parse().unwrap_or(1) - 1;
+                let column = if let Some(m) = m.name("column") {
+                    m.as_str().parse().unwrap()
+                } else {
+                    0
+                };
+                let message = m.name("message").unwrap().as_str().to_owned();
+
+                println!("{row}:{column} -- {message}");
+            }
+            None => {
+                assert!(false);
+            }
+        }
+    }
 }
