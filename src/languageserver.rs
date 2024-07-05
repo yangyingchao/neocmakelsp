@@ -356,8 +356,8 @@ impl LanguageServer for Backend {
             if has_root {
                 block_on(complete::update_cache(uri.path(), context));
             }
+            block_on(self.publish_diagnostics(uri, context.to_string(), true));
         }
-        block_on(self.publish_diagnostics(uri, "to be removed...".into(), true));
 
         self.client
             .log_message(LogMessageParams {
