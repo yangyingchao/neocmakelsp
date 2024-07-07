@@ -1,24 +1,30 @@
 use std::path::PathBuf;
 
 use clap::{arg, Parser};
+use tracing::Level;
 
 const LSP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Parser, PartialEq, Eq)]
 #[command(
     name = "neocmakelsp",
-    about="CMake Lsp implementation based on Tower and Tree-sitter", 
+    about="CMake Lsp implementation based on Tower and Tree-sitter",
     long_about = None,
     author = "Cris",
     version=LSP_VERSION
 )]
 pub enum NeocmakeCli {
     #[command(long_flag = "stdio", about = "run with stdio")]
-    Stdio,
+    Stdio {
+        #[arg(short='d', long="log-level", default_value("info"),)]
+        log_level: Level,
+    },
     #[command(long_flag = "tcp", about = "run with tcp")]
     Tcp {
         #[arg(long, value_name = "port")]
         port: Option<u16>,
+        #[arg(short='d', long="log-level", default_value("info"),)]
+        log_level: Level,
     },
     #[command(long_flag = "search", short_flag = 'S', about = "search the packages")]
     Search {
@@ -79,5 +85,27 @@ fn test_claps() {
         NeocmakeCli::command().get_matches_from(vec!["neocmakelsp", "tcp", "--port", "2012"]);
 
     let cli = NeocmakeCli::from_arg_matches_mut(&mut args).unwrap();
-    assert_eq!(cli, NeocmakeCli::Tcp { port: Some(2012) });
+    assert_eq!(cli, NeocmakeCli::Tcp { port: Some(2012), log_level: Level::INFO });
+
+    let mut args =
+        NeocmakeCli::command().get_matches_from(vec!["neocmakelsp", "stdio", "--log-level", "trace"]);
+
+    let cli = NeocmakeCli::from_arg_matches_mut(&mut args).unwrap();
+    match cli {
+        NeocmakeCli::Stdio { log_level: _ } => {
+            assert_eq!(cli, NeocmakeCli::Stdio {log_level: Level::TRACE });
+}
+        _=> {
+            assert!(false);
+        }
+    }
+
+    match NeocmakeCli::command().try_get_matches_from(vec!["neocmakelsp", "tcp", "--port", "2024", "-d", "badlevel"]) {
+        Ok(_) => {
+            assert!(false)
+        },
+        Err(err) => {
+            assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+        }
+    }
 }

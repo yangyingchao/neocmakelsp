@@ -81,8 +81,8 @@ fn editconfig_setting() -> Option<(bool, u32)> {
 async fn main() {
     let args = NeocmakeCli::parse();
     match args {
-        NeocmakeCli::Stdio => {
-            tracing_subscriber::fmt().init();
+        NeocmakeCli::Stdio { log_level } => {
+            tracing_subscriber::fmt().with_max_level(log_level).init();
             let (stdin, stdout) = (tokio::io::stdin(), tokio::io::stdout());
             let (service, socket) = LspService::new(|client| Backend {
                 client,
@@ -93,8 +93,8 @@ async fn main() {
             });
             Server::new(stdin, stdout, socket).serve(service).await;
         }
-        NeocmakeCli::Tcp { port } => {
-            tracing_subscriber::fmt().init();
+        NeocmakeCli::Tcp { port, log_level } => {
+            tracing_subscriber::fmt().with_max_level(log_level).init();
             let stream = {
                 if let Some(port) = port {
                     let listener = TcpListener::bind(SocketAddr::new(
