@@ -73,7 +73,7 @@ local nvim_lsp = require("lspconfig")
 if not configs.neocmake then
     configs.neocmake = {
         default_config = {
-            cmd = { "neocmakelsp", "--stdio" },
+            cmd = { "neocmakelsp", "stdio" },
             filetypes = { "cmake" },
             root_dir = function(fname)
                 return nvim_lsp.util.find_git_ancestor(fname)
@@ -142,7 +142,7 @@ language-servers = [{ name = "neocmakelsp" }]
 
 [language-server.neocmakelsp]
 command = "neocmakelsp"
-args = ["--stdio"]
+args = ["stdio"]
 ```
 
 
@@ -169,7 +169,7 @@ To use `neocmakelsp` with eglot:
   (add-hook 'cmake-ts-mode-hook
     (defun setup-neocmakelsp ()
       (require 'eglot)
-      (add-to-list 'eglot-server-programs `((cmake-ts-mode) . ("neocmakelsp" "--stdio")))
+      (add-to-list 'eglot-server-programs `((cmake-ts-mode) . ("neocmakelsp" "stdio")))
       (eglot-ensure))))
 ```
 
