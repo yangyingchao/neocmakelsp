@@ -7,16 +7,10 @@ use tower_lsp::lsp_types::DiagnosticSeverity;
 use tree_sitter::Point;
 
 use crate::CMakeNodeKinds;
-use crate::config::{self, CONFIG};
 use crate::consts::TREESITTER_CMAKE_LANGUAGE;
 use crate::utils::{include_is_module, remove_quotation_and_replace_placeholders};
 
 const INCLUDE_CHECK_KEYWORDS: &[&str; 2] = &["include", "add_subdirectory"];
-
-pub(crate) struct LintConfigInfo {
-    pub use_lint: bool,
-    pub use_extra_cmake_lint: bool,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ErrorInformation {
@@ -40,24 +34,13 @@ impl Deref for ErrorInfo {
     }
 }
 
-pub fn checkerror<P: AsRef<Path>>(
-    local_path: &P,
-    source: &str,
-    LintConfigInfo {
-        use_lint,
-        use_extra_cmake_lint,
-    }: LintConfigInfo,
-) -> Option<ErrorInfo> {
+pub fn checkerror<P: AsRef<Path>>(local_path: &P, source: &str) -> Option<ErrorInfo> {
     let newsource = source.lines().collect();
-    let cmake_lint_info = if use_lint {
-        run_cmake_lint(local_path, use_extra_cmake_lint, &newsource)
-    } else {
-        None
-    };
+    let cmake_lint_info = run_cmake_lint(local_path);
     let mut parse = tree_sitter::Parser::new();
     parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
     let thetree = parse.parse(source, None)?;
-    let mut result = checkerror_inner(local_path, &newsource, thetree.root_node(), use_lint);
+    let mut result = checkerror_inner(local_path, &newsource, thetree.root_node());
     if let Some(v) = cmake_lint_info {
         let error_info = result.get_or_insert(ErrorInfo { inner: vec![] });
         for item in v.inner {
@@ -74,51 +57,14 @@ const RE_MATCH_LINT_RESULT: &str =
 static LINT_REGEX: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(RE_MATCH_LINT_RESULT).unwrap());
 
-fn run_cmake_lint<P: AsRef<Path>>(
-    path: P,
-    use_extra_cmake_lint: bool,
-    contexts: &Vec<&str>,
-) -> Option<ErrorInfo> {
-    if use_extra_cmake_lint {
-        return run_extra_lint(path);
-    }
-    let mut info = vec![];
-    let max_len = CONFIG.line_max_words;
-    for (index, line) in contexts.iter().enumerate() {
-        let len = line.len();
-        if len > max_len {
-            let start_point = Point {
-                row: index,
-                column: 0,
-            };
-            let end_point = Point {
-                row: index,
-                column: 0,
-            };
-            let message = format!("[C0301] Line too long ({len}/{max_len})");
-            info.push(ErrorInformation {
-                start_point,
-                end_point,
-                message,
-                severity: Some(DiagnosticSeverity::WARNING),
-            });
-        }
-    }
-    if info.is_empty() {
-        None
-    } else {
-        Some(ErrorInfo { inner: info })
-    }
-}
-
-fn run_extra_lint<P: AsRef<Path>>(path: P) -> Option<ErrorInfo> {
+fn run_cmake_lint<P: AsRef<Path>>(path: P) -> Option<ErrorInfo> {
     let path = path.as_ref();
     if !path.exists() {
         return None;
     }
 
     let output = Command::new("cmake-lint").arg(path).output().ok()?;
-    let output_str = String::from_utf8_lossy(&output.stdout);
+    let output_str = String::from_utf8_lossy(&output.stdout); // WIP: stderr should be parsed too
 
     let mut info = vec![];
 
@@ -158,7 +104,6 @@ fn checkerror_inner<P: AsRef<Path>>(
     local_path: P,
     newsource: &Vec<&str>,
     input: tree_sitter::Node,
-    use_lint: bool,
 ) -> Option<ErrorInfo> {
     if input.is_error() {
         return Some(ErrorInfo {
@@ -174,7 +119,7 @@ fn checkerror_inner<P: AsRef<Path>>(
     let mut course = input.walk();
     let mut output = vec![];
     for node in input.children(&mut course) {
-        if let Some(mut tran) = checkerror_inner(local_path, newsource, node, use_lint) {
+        if let Some(mut tran) = checkerror_inner(local_path, newsource, node) {
             output.append(&mut tran.inner);
         }
         if node.kind() != CMakeNodeKinds::NORMAL_COMMAND {
@@ -188,18 +133,6 @@ fn checkerror_inner<P: AsRef<Path>>(
         let x = ids.start_position().column;
         let y = ids.end_position().column;
         let name = &newsource[h][x..y];
-        if use_lint
-            && let Some(hint) = config::CONFIG
-                .command_case
-                .and_then(|lint| lint.check(name))
-        {
-            output.push(ErrorInformation {
-                start_point: ids.start_position(),
-                end_point: ids.end_position(),
-                message: hint.to_owned(),
-                severity: Some(DiagnosticSeverity::HINT),
-            });
-        }
         let lowercase_name = name.to_lowercase();
         if lowercase_name == "find_package" {
             let errorpackages = crate::filewatcher::get_error_packages();
@@ -387,7 +320,6 @@ add_subdirectory("unexist_subdir")
         top_cmake,
         &gammar_file_src.lines().collect(),
         thetree.root_node(),
-        false,
     )
     .unwrap();
 
@@ -470,12 +402,7 @@ fn gammer_passed_check_1() {
 
     let input = thetree.root_node();
     assert_eq!(
-        checkerror_inner(
-            std::path::Path::new("."),
-            &source.lines().collect(),
-            input,
-            true,
-        ),
+        checkerror_inner(std::path::Path::new("."), &source.lines().collect(), input,),
         Some(ErrorInfo {
             inner: vec![ErrorInformation {
                 start_point: input.start_position(),
@@ -499,7 +426,6 @@ fn gammer_passed_check_2() {
             std::path::Path::new("."),
             &source.lines().collect(),
             thetree.root_node(),
-            true,
         )
         .is_none()
     );

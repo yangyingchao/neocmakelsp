@@ -243,31 +243,6 @@ fn location_range_contain(location: Point, range_node: Node) -> bool {
     true
 }
 
-pub fn contain_comment(location: Point, root: Node) -> bool {
-    if !location_range_contain(location, root) {
-        return false;
-    }
-    if root.kind() == CMakeNodeKinds::LINE_COMMENT || root.kind() == CMakeNodeKinds::BRACKET_COMMENT
-    {
-        return true;
-    }
-    let mut cursor = root.walk();
-    for child in root.children(&mut cursor) {
-        if !location_range_contain(location, child) {
-            continue;
-        }
-        if child.kind() == CMakeNodeKinds::LINE_COMMENT
-            || child.kind() == CMakeNodeKinds::BRACKET_COMMENT
-        {
-            return true;
-        }
-        if child.child_count() != 0 && contain_comment(location, child) {
-            return true;
-        }
-    }
-    false
-}
-
 #[inline]
 pub fn get_pos_type<'a>(location: Point, root: Node, source: &'a str) -> PositionType<'a> {
     get_pos_type_inner(
@@ -416,19 +391,6 @@ fn get_pos_type_inner<'a>(
         }
     }
     PositionType::Unknown
-}
-
-#[test]
-fn tst_line_comment() {
-    use crate::consts::TREESITTER_CMAKE_LANGUAGE;
-    let source = "set(A \"
-A#ss\" #sss)";
-    let mut parse = tree_sitter::Parser::new();
-    parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
-    let tree = parse.parse(source, None).unwrap();
-    let input = tree.root_node();
-    assert!(!contain_comment(Point { row: 1, column: 1 }, input));
-    assert!(contain_comment(Point { row: 1, column: 8 }, input));
 }
 
 #[test]

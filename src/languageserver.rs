@@ -5,7 +5,6 @@ mod test;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::sync::RwLock;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use dashmap::DashMap;
 use tower_lsp::jsonrpc::{Error as LspError, Result};
@@ -15,11 +14,9 @@ use tree_sitter::Parser;
 
 use self::config::Config;
 use super::Backend;
-use crate::config::CONFIG;
 use crate::consts::TREESITTER_CMAKE_LANGUAGE;
 use crate::fileapi::DEFAULT_QUERY;
-use crate::formatting::getformat;
-use crate::gammar::{ErrorInformation, LintConfigInfo, checkerror};
+use crate::gammar::{ErrorInformation, checkerror};
 use crate::semantic_token::LEGEND_TYPE;
 use crate::utils::treehelper::ToPosition;
 use crate::utils::{VCPKG_LIBS, VCPKG_PREFIX, did_vcpkg_project, treehelper};
@@ -29,7 +26,6 @@ use crate::{
 };
 
 static CLIENT_CAPABILITIES: RwLock<Option<TextDocumentClientCapabilities>> = RwLock::new(None);
-static ENABLE_SNIPPET: AtomicBool = AtomicBool::new(false);
 
 pub(crate) async fn get_or_update_buffer_contents<P: AsRef<Path>>(
     path: P,
@@ -54,14 +50,7 @@ pub fn get_client_capabilities() -> Option<TextDocumentClientCapabilities> {
     data.clone()
 }
 
-fn init_snippet_setting(use_snippet: bool) {
-    ENABLE_SNIPPET.store(use_snippet, Ordering::Relaxed);
-}
-
 pub fn to_use_snippet() -> bool {
-    if !ENABLE_SNIPPET.load(Ordering::Relaxed) {
-        return false;
-    }
     match get_client_capabilities() {
         Some(c) => c
             .completion
@@ -96,7 +85,7 @@ impl Backend {
             .all(|component| component != Component::ParentDir)
     }
 
-    async fn publish_diagnostics(&self, uri: Uri, context: &str, lint_info: LintConfigInfo) {
+    async fn publish_diagnostics(&self, uri: Uri, context: &str) {
         let Ok(file_path) = uri.to_file_path() else {
             tracing::error!("Cannot transport {uri:?} to file_path");
             self.client
@@ -112,7 +101,7 @@ impl Backend {
             return;
         }
 
-        let gammererror = checkerror(&file_path, context, lint_info);
+        let gammererror = checkerror(&file_path, context);
         if let Some(diagnoses) = gammererror {
             let mut pusheddiagnoses = vec![];
             for ErrorInformation {
@@ -153,15 +142,7 @@ impl Backend {
         for item in &self.documents {
             let uri = item.key();
             let text = item.value();
-            self.publish_diagnostics(
-                uri.clone(),
-                text,
-                LintConfigInfo {
-                    use_lint: self.init_info().enable_lint,
-                    use_extra_cmake_lint: true,
-                },
-            )
-            .await;
+            self.publish_diagnostics(uri.clone(), text).await;
         }
     }
 }
@@ -173,18 +154,11 @@ impl LanguageServer for Backend {
             .and_then(|value| serde_json::from_value(value).unwrap_or(None))
             .unwrap_or_default();
 
-        init_snippet_setting(initial_config.use_snippets());
-
-        let do_format = initial_config.is_format_enabled();
-
         let scan_cmake_in_package = initial_config.is_scan_cmake_in_package();
-
-        let enable_lint = initial_config.is_lint_enabled();
 
         self.init_info
             .set(BackendInitInfo {
                 scan_cmake_in_package,
-                enable_lint,
             })
             .expect("here should be the first place to init the init_info");
 
@@ -277,11 +251,7 @@ impl LanguageServer for Backend {
                 }),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 definition_provider: Some(OneOf::Left(true)),
-                document_formatting_provider: if do_format {
-                    Some(OneOf::Left(true))
-                } else {
-                    None
-                },
+                document_formatting_provider: None,
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 workspace: Some(WorkspaceServerCapabilities {
                     workspace_folders: Some(WorkspaceFoldersServerCapabilities {
@@ -519,15 +489,7 @@ impl LanguageServer for Backend {
 
         complete::update_cache(&path, &text).await;
         jump::update_cache(&path, &text).await;
-        self.publish_diagnostics(
-            uri,
-            &text,
-            LintConfigInfo {
-                use_lint: self.init_info().enable_lint,
-                use_extra_cmake_lint: true,
-            },
-        )
-        .await;
+        self.publish_diagnostics(uri, &text).await;
 
         self.client
             .log_message(MessageType::INFO, format!("Opened file {}", path.display()))
@@ -558,15 +520,7 @@ impl LanguageServer for Backend {
         self.documents.insert(uri.clone(), text);
         let text = self.documents.get(&uri).unwrap();
         if text.lines().count() < 500 {
-            self.publish_diagnostics(
-                uri.clone(),
-                &text,
-                LintConfigInfo {
-                    use_lint: self.init_info().enable_lint,
-                    use_extra_cmake_lint: false,
-                },
-            )
-            .await;
+            self.publish_diagnostics(uri.clone(), &text).await;
         }
         self.client
             .log_message(MessageType::INFO, &format!("update file: {}", uri.as_str()))
@@ -595,15 +549,7 @@ impl LanguageServer for Backend {
             complete::update_cache(&file_path, &text).await;
             jump::update_cache(&file_path, &text).await;
         }
-        self.publish_diagnostics(
-            uri,
-            &text,
-            LintConfigInfo {
-                use_lint: self.init_info().enable_lint,
-                use_extra_cmake_lint: CONFIG.enable_external_cmake_lint,
-            },
-        )
-        .await;
+        self.publish_diagnostics(uri, &text).await;
 
         self.client
             .log_message(MessageType::INFO, "file saved!")
@@ -628,34 +574,6 @@ impl LanguageServer for Backend {
                     end: position,
                 }),
             })),
-            None => Ok(None),
-        }
-    }
-
-    async fn formatting(&self, input: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
-        self.client
-            .log_message(
-                MessageType::INFO,
-                format!("formatting, space is {}", input.options.insert_spaces),
-            )
-            .await;
-        let uri = input.text_document.uri;
-        let space_line = if input.options.insert_spaces {
-            input.options.tab_size
-        } else {
-            1
-        };
-        let insert_final_newline = input.options.insert_final_newline.unwrap_or(false);
-        match self.documents.get(&uri) {
-            Some(text) => Ok(getformat(
-                self.root_path().map(|p| p.as_path()),
-                &text,
-                &self.client,
-                space_line,
-                input.options.insert_spaces,
-                insert_final_newline,
-            )
-            .await),
             None => Ok(None),
         }
     }
