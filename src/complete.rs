@@ -133,9 +133,9 @@ pub async fn getcomplete<P: AsRef<Path>>(
     let thetree = parse.parse(source, None);
     let tree = thetree.unwrap();
     let mut complete: Vec<CompletionItem> = vec![];
-
     let current_point = location.to_point();
     let postype = get_pos_type(current_point, tree.root_node(), source);
+    let lines = source.lines().collect();
     match postype {
         PositionType::VarOrFun
         | PositionType::TargetLink
@@ -150,7 +150,7 @@ pub async fn getcomplete<P: AsRef<Path>>(
             }
             if let Some(mut message) = getsubcomplete(
                 tree.root_node(),
-                &source.lines().collect(),
+                &lines,
                 Path::new(local_path),
                 postype,
                 Some(location),
@@ -162,13 +162,33 @@ pub async fn getcomplete<P: AsRef<Path>>(
                 complete.append(&mut message);
             }
 
-            if let Ok(messages) = &*BUILTIN_COMMAND
-                && !matches!(postype, PositionType::ArgumentOrList)
-            {
-                complete.append(&mut messages.clone());
-            }
-            if let Ok(messages) = &*BUILTIN_VARIABLE {
-                complete.append(&mut messages.clone());
+            let line_num: usize = location.line.try_into().unwrap();
+            let character: usize = location.character.try_into().unwrap();
+            if character > 0 {
+                let prefix = lines[line_num][0..character]
+                    .split(" ")
+                    .last()
+                    .unwrap_or("NOTHING");
+                if let Ok(messages) = &*BUILTIN_COMMAND
+                    && !matches!(postype, PositionType::ArgumentOrList)
+                {
+                    let cands: Vec<_> = messages
+                        .iter()
+                        .filter(|item| item.label.starts_with(prefix))
+                        .cloned()
+                        .collect();
+
+                    complete.append(&mut cands.clone());
+                }
+                if let Ok(messages) = &*BUILTIN_VARIABLE {
+                    let cands: Vec<_> = messages
+                        .iter()
+                        .filter(|item| item.label.starts_with(prefix))
+                        .cloned()
+                        .collect();
+
+                    complete.append(&mut cands.clone());
+                }
             }
         }
         PositionType::FindPackageSpace(space) => {

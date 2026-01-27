@@ -150,6 +150,22 @@ pub fn get_position_range(location: Position, root: Node) -> Option<Range> {
     None
 }
 
+fn truncate_long_string(input: &&str) -> String {
+    let mut ss: String;
+    let m: Vec<_> = input
+        .split('\n')
+        .filter(|line| !line.starts_with(".. versionadded:: "))
+        .collect();
+    let n = m.len();
+    if n > 15 {
+        ss = m.to_vec()[..15].join("\n").to_string();
+        ss += "\n\n ...SKIPPED CONTENT...";
+    } else {
+        ss = m.join("\n").to_string().to_string();
+    }
+
+    ss
+}
 pub static MESSAGE_STORAGE: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
     let mut storage: HashMap<String, String> = HashMap::new();
     let re = regex::Regex::new(r"[z-zA-z]+\n-+").unwrap();
@@ -166,7 +182,7 @@ pub static MESSAGE_STORAGE: LazyLock<HashMap<String, String>> = LazyLock::new(||
         let content: Vec<_> = re.split(&temp).collect();
         let context = &content[1..];
         for (akey, message) in zip(key, context) {
-            storage.insert(akey.to_string(), message.to_string());
+            storage.insert(akey.to_string(), truncate_long_string(message));
         }
     }
     if let Ok(output) = Command::new("cmake").arg("--help-variables").output() {
@@ -182,7 +198,7 @@ pub static MESSAGE_STORAGE: LazyLock<HashMap<String, String>> = LazyLock::new(||
         let content: Vec<_> = re.split(&temp).collect();
         let context = &content[1..];
         for (akey, message) in zip(key, context) {
-            storage.insert(akey.to_string(), message.to_string());
+            storage.insert(akey.to_string(), truncate_long_string(message));
         }
     }
     if let Ok(output) = Command::new("cmake").arg("--help-modules").output() {
@@ -198,7 +214,7 @@ pub static MESSAGE_STORAGE: LazyLock<HashMap<String, String>> = LazyLock::new(||
         let content: Vec<_> = re.split(&temp).collect();
         let context = &content[1..];
         for (akey, message) in zip(key, context) {
-            storage.insert(akey.to_string(), message.to_string());
+            storage.insert(akey.to_string(), truncate_long_string(message));
         }
     }
     #[cfg(unix)]
@@ -241,31 +257,6 @@ fn location_range_contain(location: Point, range_node: Node) -> bool {
         return false;
     }
     true
-}
-
-pub fn contain_comment(location: Point, root: Node) -> bool {
-    if !location_range_contain(location, root) {
-        return false;
-    }
-    if root.kind() == CMakeNodeKinds::LINE_COMMENT || root.kind() == CMakeNodeKinds::BRACKET_COMMENT
-    {
-        return true;
-    }
-    let mut cursor = root.walk();
-    for child in root.children(&mut cursor) {
-        if !location_range_contain(location, child) {
-            continue;
-        }
-        if child.kind() == CMakeNodeKinds::LINE_COMMENT
-            || child.kind() == CMakeNodeKinds::BRACKET_COMMENT
-        {
-            return true;
-        }
-        if child.child_count() != 0 && contain_comment(location, child) {
-            return true;
-        }
-    }
-    false
 }
 
 #[inline]
@@ -416,19 +407,6 @@ fn get_pos_type_inner<'a>(
         }
     }
     PositionType::Unknown
-}
-
-#[test]
-fn tst_line_comment() {
-    use crate::consts::TREESITTER_CMAKE_LANGUAGE;
-    let source = "set(A \"
-A#ss\" #sss)";
-    let mut parse = tree_sitter::Parser::new();
-    parse.set_language(&TREESITTER_CMAKE_LANGUAGE).unwrap();
-    let tree = parse.parse(source, None).unwrap();
-    let input = tree.root_node();
-    assert!(!contain_comment(Point { row: 1, column: 1 }, input));
-    assert!(contain_comment(Point { row: 1, column: 8 }, input));
 }
 
 #[test]

@@ -1,8 +1,6 @@
-use std::path::PathBuf;
-
 use clap::builder::Styles;
 use clap::builder::styling::{AnsiColor, Color, Style};
-use clap::{Parser, Subcommand, ValueHint};
+use clap::{Parser, Subcommand};
 
 const STYLES: Styles = Styles::styled()
     .header(
@@ -35,6 +33,9 @@ const STYLES: Styles = Styles::styled()
 #[command(styles = STYLES)]
 #[command(propagate_version = true)]
 pub(crate) struct Cli {
+    #[arg(short, long)]
+    pub(crate) debug: bool, // 添加 --debug 选项
+
     #[command(subcommand)]
     pub(crate) command: Command,
 }
@@ -49,38 +50,6 @@ pub(crate) enum Command {
         /// Port used for the TCP connection.
         #[arg(short, long, default_value_t = 9257)]
         port: u16,
-    },
-
-    /// Format a CMake file.
-    Format {
-        /// Files to format.
-        #[arg(required = true)]
-        files: Vec<PathBuf>,
-
-        /// Write the formatted contents to the file.
-        #[arg(short, long, short_alias = 'o', alias = "override")]
-        inplace: bool,
-    },
-
-    /// Find a CMake module by name.
-    Search {
-        /// Module name to search for.
-        module: String,
-
-        /// Generate JSON output.
-        #[arg(short, long)]
-        json: bool,
-    },
-
-    /// Print a tree of CMake files.
-    Tree {
-        /// File to start with.
-        #[arg(default_value = ".", value_hint = ValueHint::AnyPath)]
-        path: PathBuf,
-
-        /// Generate JSON output.
-        #[arg(short, long)]
-        json: bool,
     },
 }
 

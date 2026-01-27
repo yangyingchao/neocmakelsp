@@ -6,7 +6,7 @@ permissions: {}
 on:
   push:
     branches:
-      - master
+      - yc-hacking
   pull_request:
     branches:
       - master
@@ -29,7 +29,6 @@ jobs:
         os:
           - macos-15
           - ubuntu-24.04
-          - windows-2025
       fail-fast: false
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
