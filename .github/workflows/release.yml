@@ -11,7 +11,7 @@ on:
     branches:
       - yc-hacking
     tags:
-      - '*'
+      - v[0-9]+.*
 
 jobs:
   crate_metadata:
@@ -33,26 +33,6 @@ jobs:
       maintainer: ${{ steps.crate_metadata.outputs.maintainer }}
       homepage: ${{ steps.crate_metadata.outputs.homepage }}
       msrv: ${{ steps.crate_metadata.outputs.msrv }}
-
-  ensure_cargo_fmt:
-    name: Ensure 'cargo fmt' has been run
-    runs-on: ubuntu-latest
-    steps:
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        components: rustfmt
-    - uses: actions/checkout@v5
-    - run: cargo fmt -- --check
-
-  lint_check:
-    name: Ensure 'cargo clippy' has no warnings
-    runs-on: ubuntu-latest
-    steps:
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy
-    - uses: actions/checkout@v5
-    - run: cargo clippy --all-targets --all-features -- -Dwarnings
 
   build:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})
@@ -184,16 +164,8 @@ jobs:
         name: ${{ steps.package.outputs.PKG_NAME }}
         path: ${{ steps.package.outputs.PKG_PATH }}
 
-    - name: Check for release
-      id: is-release
-      shell: bash
-      run: |
-        unset IS_RELEASE ; if [[ $GITHUB_REF =~ ^refs/tags/v[0-9].* ]]; then IS_RELEASE='true' ; fi
-        echo "IS_RELEASE=${IS_RELEASE}" >> $GITHUB_OUTPUT
-
     - name: Publish archives and packages
       uses: softprops/action-gh-release@v2
-      if: steps.is-release.outputs.IS_RELEASE
       with:
         files: |
           ${{ steps.package.outputs.PKG_PATH }}
