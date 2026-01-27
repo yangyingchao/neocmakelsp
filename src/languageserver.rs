@@ -181,13 +181,17 @@ impl LanguageServer for Backend {
                     filewatcher::refresh_error_packages(path);
                 }
 
-                tracing::info!("find cache-v2 json, start reading the data");
                 let cache_path = top_path
                     .join("build")
                     .join(".cmake")
                     .join("api")
                     .join("v1")
                     .join("reply");
+
+                tracing::info!(
+                    "find cache-v2 json, start reading the data: {:?}",
+                    cache_path
+                );
                 if cache_path.is_dir() {
                     use std::fs;
                     if let Ok(entries) = fs::read_dir(cache_path) {

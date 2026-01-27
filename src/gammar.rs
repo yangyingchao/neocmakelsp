@@ -64,7 +64,7 @@ fn run_cmake_lint<P: AsRef<Path>>(path: P) -> Option<ErrorInfo> {
     }
 
     let output = Command::new("cmake-lint").arg(path).output().ok()?;
-    let output_str = String::from_utf8_lossy(&output.stdout); // WIP: stderr should be parsed too
+    let output_str = String::from_utf8_lossy(&output.stdout); // TODO: stderr should be parsed too
 
     let mut info = vec![];
 

@@ -81,9 +81,8 @@ async fn main() -> Result<()> {
         log.init();
     }
 
+    #[cfg(unix)]
     if args.debug {
-        // Safety: Calling raise is safe as long as the signal number is valid.
-        // SIGSTOP (19) is a standard POSIX signal.
         unsafe {
             libc::raise(libc::SIGSTOP);
         }

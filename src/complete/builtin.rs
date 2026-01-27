@@ -214,6 +214,7 @@ pub static BUILTIN_COMMAND: LazyLock<Result<Vec<CompletionItem>>> = LazyLock::ne
         .output()?
         .stdout;
     let temp = String::from_utf8_lossy(&output);
+    tracing::info!("Dumpping builtin commands");
     gen_builtin_commands(&temp)
 });
 
@@ -224,6 +225,7 @@ pub static BUILTIN_VARIABLE: LazyLock<Result<Vec<CompletionItem>>> = LazyLock::n
         .output()?
         .stdout;
     let temp = String::from_utf8_lossy(&output);
+    tracing::info!("Dumpping builtin variables");
     gen_builtin_variables(&temp)
 });
 
