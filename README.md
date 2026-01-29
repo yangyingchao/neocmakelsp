@@ -31,3 +31,12 @@ This fork tailors the upstream project for Emacs workflows and adds some perform
   (dolist (target (ensure-list 'eglot-shutdown))
     (advice-add target :around #'yc/eglot-shutdown-around-a)))
 ```
+
+## Requirements
+
+It requires `cmake-lint` & `cmake-format` for linting and formating. Install with pip:
+
+``` shell
+uv pip install cmakelang
+```
+
