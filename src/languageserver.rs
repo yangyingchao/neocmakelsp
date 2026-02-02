@@ -3,7 +3,6 @@ mod config;
 mod test;
 
 use std::path::{Path, PathBuf};
-use std::process::exit;
 use std::sync::RwLock;
 
 use dashmap::DashMap;
@@ -330,10 +329,13 @@ impl LanguageServer for Backend {
             register_options: Some(serde_json::to_value(cachefilechangeparms).unwrap()),
         };
 
-        self.client
+        if let Err(e) = self
+            .client
             .register_capability(vec![cmakecache_watcher])
             .await
-            .unwrap();
+        {
+            tracing::warn!("Eglot may not support dynamic registration: {}", e);
+        }
 
         self.client
             .log_message(MessageType::INFO, "initialized!")
@@ -400,50 +402,41 @@ impl LanguageServer for Backend {
             .report_with_message("Start generating builtin data", 50)
             .await;
 
-        // 并行执行四个初始化任务，每个任务完成后立即报告进度
-        let tasks = vec![
-            (
-                "builtin commands",
-                tokio::spawn(async { complete::init_builtin_command() }),
-            ),
-            (
-                "builtin module",
-                tokio::spawn(async { complete::init_builtin_module() }),
-            ),
-            (
-                "builtin variable",
-                tokio::spawn(async { complete::init_builtin_variable() }),
-            ),
-            (
-                "system modules",
-                tokio::spawn(async { complete::init_system_modules() }),
-            ),
-        ];
-
-        let total_tasks = tasks.len() as u32;
+        // Run four init tasks in parallel; report progress as each completes (any order).
+        let total_tasks = 4u32;
         let base_progress = 50;
-        let progress_range = 50; // 从50到100的范围
+        let progress_range = 50;
 
-        // 等待所有任务完成并动态更新进度
-        for (idx, (task_name, handle)) in tasks.into_iter().enumerate() {
-            match handle.await {
-                Ok(_) => {
-                    // 根据完成的任务数动态计算进度
-                    let completed = (idx + 1) as u32;
-                    let progress_pct = base_progress + (completed * progress_range) / total_tasks;
-                    progress
-                        .report_with_message(&format!("Finished {}", task_name), progress_pct)
-                        .await;
-                }
+        let mut join_set = tokio::task::JoinSet::new();
+        join_set.spawn(async move {
+            complete::init_builtin_command();
+            "builtin commands"
+        });
+        join_set.spawn(async move {
+            complete::init_builtin_module();
+            "builtin module"
+        });
+        join_set.spawn(async move {
+            complete::init_builtin_variable();
+            "builtin variable"
+        });
+        join_set.spawn(async move {
+            complete::init_system_modules();
+            "system modules"
+        });
+
+        let mut completed = 0u32;
+        while let Some(res) = join_set.join_next().await {
+            completed += 1;
+            let progress_pct = base_progress + (completed * progress_range) / total_tasks;
+            let message = match &res {
+                Ok(name) => format!("Finished {}", name),
                 Err(e) => {
-                    let completed = (idx + 1) as u32;
-                    let progress_pct = base_progress + (completed * progress_range) / total_tasks;
-                    tracing::error!("Failed to initialize {}: {:?}", task_name, e);
-                    progress
-                        .report_with_message(&format!("Failed {}", task_name), progress_pct)
-                        .await;
+                    tracing::error!("Initialization task panicked: {:?}", e);
+                    format!("Task {} failed", completed)
                 }
-            }
+            };
+            progress.report_with_message(&message, progress_pct).await;
         }
 
         progress.report_with_message("Scan finished", 100).await;
@@ -451,7 +444,7 @@ impl LanguageServer for Backend {
     }
 
     async fn shutdown(&self) -> Result<()> {
-        exit(0)
+        Ok(())
     }
 
     async fn did_change_workspace_folders(&self, _: DidChangeWorkspaceFoldersParams) {
@@ -526,9 +519,7 @@ impl LanguageServer for Backend {
         jump::update_cache(&path, &text).await;
         self.publish_diagnostics(uri, &text).await;
 
-        self.client
-            .log_message(MessageType::INFO, format!("Opened file {}", path.display()))
-            .await;
+        tracing::debug!("opened file: {}", path.display());
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
@@ -557,9 +548,7 @@ impl LanguageServer for Backend {
         if text.lines().count() < 500 {
             self.publish_diagnostics(uri.clone(), &text).await;
         }
-        self.client
-            .log_message(MessageType::INFO, &format!("update file: {}", uri.as_str()))
-            .await;
+        tracing::debug!("updated file: {}", uri.as_str());
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
@@ -567,9 +556,7 @@ impl LanguageServer for Backend {
 
         let has_root = self.root_path().is_some();
         let Some(text) = self.documents.get(&uri) else {
-            self.client
-                .log_message(MessageType::INFO, "file saved!")
-                .await;
+            tracing::debug!("file saved (no cached text): {:?}", uri);
             return;
         };
         let file_path = match uri.to_file_path() {
@@ -584,11 +571,8 @@ impl LanguageServer for Backend {
             complete::update_cache(&file_path, &text).await;
             jump::update_cache(&file_path, &text).await;
         }
-        self.publish_diagnostics(uri, &text).await;
-
-        self.client
-            .log_message(MessageType::INFO, "file saved!")
-            .await;
+        self.publish_diagnostics(uri.clone(), &text).await;
+        tracing::debug!("file saved: {:?}", uri);
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -614,12 +598,8 @@ impl LanguageServer for Backend {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.client
-            .log_message(
-                MessageType::INFO,
-                format!("file {:?} closed!", params.text_document.uri),
-            )
-            .await;
+        self.documents.remove(&params.text_document.uri);
+        tracing::debug!("file closed: {:?}", params.text_document.uri);
     }
 
     async fn completion(&self, input: CompletionParams) -> Result<Option<CompletionResponse>> {
